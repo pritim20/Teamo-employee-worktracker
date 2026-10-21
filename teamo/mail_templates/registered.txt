@@ -1,0 +1,8 @@
+Subject: We received your registration - {company}
+Hi {name},
+
+Thanks for registering with {company}. Your request is now waiting for a manager's approval.
+
+Once it is approved, your manager will email you your company email id and password for signing in.
+
+{company}

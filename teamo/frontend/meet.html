@@ -1,0 +1,108 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="icon" type="image/png" href="/static/img/favicon.png"><title>Teamo Meeting</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:#0b0d1f;color:#eceefe;overflow:hidden}
+button{font:inherit;color:inherit;cursor:pointer}
+.center{min-height:100%;display:grid;place-items:center;padding:20px}
+.panel{background:#15172f;border:1px solid #262949;border-radius:22px;padding:28px;width:100%;max-width:560px;box-shadow:0 30px 60px -20px rgba(0,0,0,.6)}
+.panel.prejoin{max-width:900px}
+.brand{display:flex;align-items:center;gap:10px;font-weight:800;font-size:18px;margin-bottom:18px}
+.brand img{width:34px;height:34px;border-radius:10px}
+h1{font-size:22px;margin-bottom:4px} .muted{color:#9ea2c6;font-size:13px}
+.preview{position:relative;margin:18px 0;border-radius:16px;overflow:hidden;background:#000;aspect-ratio:16/10;display:grid;place-items:center;box-shadow:0 10px 30px -10px rgba(0,0,0,.6)}
+.preview video{width:100%;height:100%;object-fit:cover;transform:scaleX(-1)}
+.preview video,.preview .avatar-big,.preview #pvmsg{grid-area:1/1}
+.avatar-big{width:96px;height:96px;border-radius:50%;display:grid;place-items:center;font-size:36px;font-weight:800;color:#fff;box-shadow:0 8px 24px -4px rgba(0,0,0,.5)}
+.preview-controls{position:absolute;left:50%;bottom:16px;transform:translateX(-50%);display:flex;gap:14px;z-index:2}
+.btn{border:1px solid #262949;background:#1b1d3a;border-radius:12px;padding:10px 18px;font-weight:600}
+.btn.primary{background:linear-gradient(135deg,#6366f1,#8b5cf6);border:none;color:#fff}
+.btn.primary.lg{padding:13px 26px;font-size:15px;border-radius:14px;box-shadow:0 10px 24px -6px rgba(99,102,241,.55)}
+.btn.danger{background:#dc2626;border:none;color:#fff}
+.btn:disabled{opacity:.5;cursor:default}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.prejoin-wrap{display:flex;gap:28px;align-items:center;flex-wrap:wrap}
+.prejoin-wrap .preview{flex:1 1 420px;margin:0}
+.prejoin-info{flex:1 1 220px;min-width:220px}
+.prejoin-info h1{font-size:25px}
+.prejoin-info .muted{margin:6px 0 24px;font-size:14px}
+@media(max-width:620px){.prejoin-wrap{flex-direction:column}.prejoin-info{width:100%}}
+#room{display:none;height:100%;grid-template-columns:1fr;grid-template-rows:1fr auto}
+#room.on{display:grid}
+#main{display:flex;min-height:0}
+#stage{flex:1;min-width:0;padding:14px;overflow:auto;position:relative}
+.reaction{position:absolute;bottom:70px;display:flex;flex-direction:column;align-items:center;pointer-events:none;animation:floatUp 2.4s ease-out forwards;z-index:4}
+.reaction .e{font-size:42px;line-height:1;filter:drop-shadow(0 2px 6px rgba(0,0,0,.4))}
+.reaction .who{font-size:11px;color:#fff;background:rgba(0,0,0,.55);padding:2px 8px;border-radius:9px;margin-top:4px;white-space:nowrap}
+@keyframes floatUp{0%{opacity:0;transform:translateY(0) scale(.5)}15%{opacity:1;transform:translateY(-14px) scale(1)}100%{opacity:0;transform:translateY(-170px) scale(1.05)}}
+#picker{position:fixed;background:#15172f;border:1px solid #262949;border-radius:16px;padding:8px;display:flex;gap:4px;z-index:10;box-shadow:0 10px 30px rgba(0,0,0,.5)}
+#picker button{background:none;border:none;cursor:pointer;font-size:24px;padding:6px;border-radius:10px;line-height:1;transition:transform .12s,background .12s}
+#picker button:hover{background:#262949;transform:scale(1.18)}
+.pbtn{width:26px;height:26px;border-radius:8px;border:none;background:#262949;color:#c7d2fe;display:grid;place-items:center;cursor:pointer;flex:none}
+.pbtn svg{width:14px;height:14px}
+.pbtn:hover{background:#30335c}
+.pbtn.danger{background:#dc2626;color:#fff}
+.pbtn.danger:hover{background:#b91c1c}
+#grid{display:grid;gap:12px;height:100%;grid-template-columns:repeat(var(--cols,1),1fr);grid-auto-rows:minmax(0,1fr)}
+.tile{position:relative;background:#15172f;border:1px solid #262949;border-radius:16px;overflow:hidden;min-height:140px;display:grid;place-items:center;box-shadow:0 8px 24px -10px rgba(0,0,0,.5)}
+.tile video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;background:#000}
+.tile.me video{transform:scaleX(-1)}
+.tile.share video{object-fit:contain;transform:none}
+.avatar{width:84px;height:84px;border-radius:50%;display:grid;place-items:center;font-size:34px;font-weight:800;color:#fff}
+.label{position:absolute;left:10px;bottom:10px;background:rgba(0,0,0,.6);padding:4px 10px;border-radius:10px;font-size:13px;display:flex;gap:6px;align-items:center;max-width:90%}
+.label svg{width:14px;height:14px}
+.hand{position:absolute;top:10px;right:10px;font-size:22px}
+#side{width:340px;border-left:1px solid #262949;background:#101226;display:none;flex-direction:column;min-height:0}
+#side.on{display:flex}
+.tabs{display:flex;border-bottom:1px solid #262949}
+.tabs button{flex:1;background:none;border:none;padding:14px;font-weight:700;color:#9ea2c6;border-bottom:2px solid transparent}
+.tabs button.on{color:#fff;border-color:#8b5cf6}
+.pane{flex:1;overflow:auto;padding:14px;min-height:0}
+.person{display:flex;align-items:center;gap:10px;padding:8px;border-radius:10px;transition:background .12s}
+.person:hover{background:#181a35}
+.person .avatar{width:34px;height:34px;font-size:14px}
+.msg{display:flex;flex-direction:column;align-items:flex-start;margin-bottom:12px}
+.msg.mine{align-items:flex-end}
+.msg b{font-size:12px;color:#9ea2c6}
+.msg span{color:#9ea2c6;font-size:11px;margin-left:6px}
+.msg p{max-width:85%;margin-top:3px;padding:9px 13px;border-radius:14px;background:#1b1d3a;border:1px solid #262949;white-space:pre-wrap;word-break:break-word}
+.msg.mine p{background:#6366f1;border-color:#6366f1;color:#fff}
+#chatbox{display:flex;gap:8px;padding:12px;border-top:1px solid #262949}
+#chatbox input{flex:1;background:#1b1d3a;border:1px solid #262949;border-radius:12px;padding:10px 12px;color:inherit;font:inherit}
+#bar{display:flex;align-items:center;gap:14px;margin:0 16px 16px;padding:10px 16px;background:rgba(21,23,47,.92);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border:1px solid #262949;border-radius:22px;box-shadow:0 24px 48px -16px rgba(0,0,0,.6)}
+.bar-side{display:flex;align-items:center;gap:10px;flex:1 1 0;min-width:0}
+.bar-left{justify-content:flex-start}
+.bar-right{justify-content:flex-end}
+.bar-center{display:flex;align-items:center;gap:10px;flex:0 0 auto}
+.bar-info{display:flex;flex-direction:column;line-height:1.35;overflow:hidden}
+.timer{color:#eceefe;font-size:13px;font-weight:700}
+.title{color:#9ea2c6;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:26vw}
+.cb{width:48px;height:48px;border-radius:50%;border:none;background:#262949;color:#eceefe;display:grid;place-items:center;position:relative;flex:none;transition:background .15s,transform .1s}
+.cb svg{width:21px;height:21px}
+.cb:hover{background:#30335c}
+.cb:active{transform:scale(.93)}
+.cb:disabled{opacity:.4;cursor:not-allowed}
+.cb.off{background:#dc2626}.cb.off:hover{background:#b91c1c}
+.cb.active{background:#6366f1}.cb.active:hover{background:#4f46e5}
+.cb .dot{position:absolute;top:2px;right:2px;min-width:18px;height:18px;border-radius:9px;background:#ec4899;font-size:11px;font-weight:700;display:none;place-items:center;padding:0 4px}
+#bLeave{width:60px;border-radius:30px}
+@media(max-width:800px){#side{position:fixed;right:0;top:0;bottom:70px;z-index:5;width:min(340px,100%)}.bar-left{display:none}#bar{margin:0 8px 8px}}
+</style></head><body>
+<div class="center" id="gate"><div class="panel" id="gatebox"><div class="muted">Loading…</div></div></div>
+<div id="room"><div id="main"><div id="stage"><div id="grid"></div></div>
+  <aside id="side"><div class="tabs"><button data-t="people" class="on">People</button><button data-t="chat">Chat</button></div>
+    <div class="pane" id="people"></div><div class="pane" id="chat" style="display:none"></div>
+    <form id="chatbox" style="display:none"><input id="chatin" placeholder="Message everyone" autocomplete="off" maxlength="1000"><button class="btn primary">Send</button></form></aside></div>
+  <div id="bar">
+    <div class="bar-side bar-left"><div class="bar-info"><span class="timer" id="timer"></span><span class="title" id="mtitle"></span></div></div>
+    <div class="bar-center">
+      <button class="cb" id="bMic" title="Microphone"></button><button class="cb" id="bCam" title="Camera"></button><button class="cb" id="bShare" title="Share your screen"></button>
+      <button class="cb" id="bHand" title="Raise hand"></button><button class="cb off" id="bLeave" title="Leave"></button>
+    </div>
+    <div class="bar-side bar-right">
+      <button class="cb" id="bReact" title="Send a reaction"></button><button class="cb" id="bPeople" title="People"></button><button class="cb" id="bChat" title="Chat"><span class="dot" id="chatDot"></span></button>
+      <button class="btn danger" id="bEnd" style="display:none">End for everyone</button>
+    </div>
+  </div></div>
+<script src="/static/js/meet.js"></script></body></html>

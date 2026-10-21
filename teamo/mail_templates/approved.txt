@@ -1,0 +1,13 @@
+Subject: Welcome to {company} - your login details
+Hi {name},
+
+Your registration with {company} has been approved. Use these details to sign in:
+
+  Employee ID : {employee_id}
+  Email id    : {login_email}
+  Password    : {password}
+  Sign in at  : {login_url}
+
+Please change your password after your first sign-in (Profile > Change password), and do not share it with anyone.
+
+{company}

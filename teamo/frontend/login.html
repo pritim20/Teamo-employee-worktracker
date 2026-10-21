@@ -1,0 +1,99 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet"><link rel="stylesheet" href="/static/css/style.css"><link rel="icon" type="image/png" href="/static/img/favicon.png"><title>Teamo · Sign in</title></head><body>
+<div class="login-page">
+  <div class="login-art">
+    <div class="blob" style="width:380px;height:380px;background:#6366f1;top:-120px;right:-80px"></div>
+    <div class="blob" style="width:300px;height:300px;background:#ec4899;bottom:-100px;left:-60px"></div>
+    <div class="brand" style="padding:0;position:relative"><div class="brand-mark" id="lg1"></div><div><div class="brand-name">Teamo</div></div></div>
+  </div>
+  <div class="login-form-side">
+    <div class="login-box">
+      <div class="portal-switch" id="portal">
+        <button type="button" data-p="admin" class="on" id="pa"></button>
+        <button type="button" data-p="employee" id="pe"></button>
+      </div>
+      <h2 id="ttl">Welcome back, Admin</h2>
+      <div class="sub" id="sub">Sign in to manage your team</div>
+      <form id="lf">
+        <div class="err-box" id="err"></div>
+        <div class="field"><label>Email address</label><input class="input" name="email" type="email" placeholder="you@company.com" required autocomplete="username"></div>
+        <div class="field"><label>Password</label><input class="input" name="password" type="password" placeholder="••••••••" required autocomplete="current-password"></div>
+        <button class="btn primary lg" style="justify-content:center" id="go">Sign in</button>
+      </form>
+      <form id="rf" style="display:none">
+        <div class="err-box" id="rerr"></div>
+        <div class="field"><label>Full name</label><input class="input" name="name" placeholder="Your name" required maxlength="100" autocomplete="name"></div>
+        <div class="field"><label>Personal email</label><input class="input" name="email" type="email" placeholder="you@gmail.com" required autocomplete="email"></div>
+        <div class="field"><label>Phone number</label><input class="input" name="phone" type="tel" placeholder="+91 98765 43210" required maxlength="30" autocomplete="tel"></div>
+        <div class="field"><label>Gender</label><select class="input" name="gender" required><option value="" disabled selected>Select gender</option><option>Male</option><option>Female</option><option>Other</option></select></div>
+        <div class="field"><label>Address</label><textarea class="input" name="address" rows="2" placeholder="House no., street, city, state, PIN" required maxlength="300"></textarea></div>
+        <button class="btn primary lg" style="justify-content:center" id="rgo">Create account</button>
+      </form>
+      <div id="rdone" style="display:none" class="demo"><b>Registration received</b><br>A manager will review your request. Once approved, your company email id and password will be sent to your personal email, and then you can sign in.</div>
+      <div class="sub" style="margin:18px 0 0;text-align:center"><span id="swlead">New here?</span> <a href="#" id="swlink" style="color:var(--brand);font-weight:600">Create an account</a></div>
+      <div class="demo"><b>Demo accounts</b> — click to fill<br>
+        <button data-e="admin@teamo.com" data-pw="admin123" data-p="admin">Admin · admin@teamo.com / admin123</button>
+        <button data-e="priya@teamo.com" data-pw="emp123" data-p="employee">Employee · priya@teamo.com / emp123</button>
+      </div>
+    </div>
+  </div>
+</div>
+<script src="/static/js/common.js"></script>
+<script>
+document.getElementById("lg1").innerHTML = T.logo;
+document.getElementById("pa").innerHTML = T.icon("shield")+"Admin / Manager";
+document.getElementById("pe").innerHTML = T.icon("user")+"Employee";
+let portal = "admin";
+const setPortal = (p) => {
+  portal = p;
+  document.querySelectorAll("#portal button").forEach(b => b.classList.toggle("on", b.dataset.p === p));
+  document.getElementById("ttl").textContent = p === "admin" ? "Welcome back, Admin" : "Hello there 👋";
+  document.getElementById("sub").textContent = p === "admin" ? "Sign in to manage your team" : "Sign in with your work email to start your day";
+  document.getElementById("err").style.display = "none";
+};
+document.querySelectorAll("#portal button").forEach(b => b.onclick = () => setPortal(b.dataset.p));
+document.querySelectorAll(".demo button").forEach(b => b.onclick = () => {
+  setPortal(b.dataset.p);
+  const f = document.getElementById("lf"); f.email.value = b.dataset.e; f.password.value = b.dataset.pw;
+});
+document.getElementById("lf").onsubmit = async (e) => {
+  e.preventDefault();
+  const err = document.getElementById("err"), btn = document.getElementById("go");
+  btn.disabled = true; btn.textContent = "Signing in…"; err.style.display = "none";
+  try {
+    const r = await fetch("/api/login", {method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({email: e.target.email.value, password: e.target.password.value, portal})});
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || "Login failed");
+    location.href = d.redirect;
+  } catch (x) { err.textContent = x.message; err.style.display = "block"; btn.disabled = false; btn.textContent = "Sign in"; }
+};
+
+let registering = false;
+const setMode = (r) => {
+  registering = r;
+  document.getElementById("lf").style.display = r ? "none" : "";
+  document.getElementById("rf").style.display = r ? "" : "none";
+  document.getElementById("rdone").style.display = "none";
+  document.getElementById("portal").style.display = r ? "none" : "";
+  document.querySelector(".demo").style.display = r ? "none" : "";
+  document.getElementById("ttl").textContent = r ? "Create your account" : (portal === "admin" ? "Welcome back, Admin" : "Hello there 👋");
+  document.getElementById("sub").textContent = r ? "Register with your personal email. After approval, your manager emails you your company email id and password." : (portal === "admin" ? "Sign in to manage your team" : "Sign in with your work email to start your day");
+  document.getElementById("swlead").textContent = r ? "Already registered?" : "New here?";
+  document.getElementById("swlink").textContent = r ? "Sign in" : "Create an account";
+};
+document.getElementById("swlink").onclick = (e) => { e.preventDefault(); setMode(!registering); };
+document.getElementById("rf").onsubmit = async (e) => {
+  e.preventDefault();
+  const err = document.getElementById("rerr"), btn = document.getElementById("rgo"), f = Object.fromEntries(new FormData(e.target));
+  err.style.display = "none";
+  btn.disabled = true; btn.textContent = "Creating…";
+  try {
+    const r = await fetch("/api/register", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(f) });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || "Registration failed");
+    e.target.style.display = "none"; document.getElementById("rdone").style.display = "block";
+    document.getElementById("ttl").textContent = "Thanks for registering"; document.getElementById("sub").textContent = "";
+  } catch (x) { err.textContent = x.message; err.style.display = "block"; }
+  btn.disabled = false; btn.textContent = "Create account";
+};
+</script></body></html>

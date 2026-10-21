@@ -1,0 +1,8 @@
+Subject: Update on your registration - {company}
+Hi {name},
+
+Thank you for your interest in {company}. Unfortunately your registration was not approved.
+{reason_line}
+If you think this is a mistake, please contact your manager.
+
+{company}
