@@ -370,6 +370,12 @@ T.shell = ({ me, nav, views, tagline }) => {
         .subscribe();
     } catch (e) { /* live updates are a nice-to-have; views still work without them */ }
   })();
+  // A broadcast that arrives while this tab is in the background is deliberately skipped
+  // (triggerLiveRefresh's document.hidden check) to avoid wasted work — but nothing then
+  // retroactively catches it up, so without this the view would sit stale until some
+  // unrelated future change happens to fire another broadcast, or the user refreshes by
+  // hand. Catch up once, right when the tab becomes visible again.
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) triggerLiveRefresh(); });
 
   let refreshTimer;
   const route = async () => {
