@@ -17,6 +17,22 @@ const { broadcast } = require("./realtime");
 const { uploadFile, removeFiles, signedUrl } = require("./storage");
 
 const app = express();
+
+// Express 4 doesn't catch a rejected promise from an `async (req, res) => {...}` handler —
+// it becomes an unhandled rejection, which crashes the whole function (opaque
+// "Runtime exited with error: exit status 1" in Netlify's logs, no detail at all) instead
+// of a readable error response. Wrap every route handler once, here, so a DB hiccup or any
+// other thrown/rejected error reaches the error-handling middleware below as a normal 500.
+for (const method of ["get", "post", "put", "delete"]) {
+  const original = app[method].bind(app);
+  app[method] = (path, ...handlers) =>
+    original(path, ...handlers.map((h) =>
+      typeof h === "function"
+        ? (req, res, next) => { try { Promise.resolve(h(req, res, next)).catch(next); } catch (e) { next(e); } }
+        : h
+    ));
+}
+
 app.use(express.json());
 app.use(cookieParser());
 app.use(attachSession);
@@ -1223,6 +1239,15 @@ app.use((err, req, res, next) => {
     return res.status(400).json({ error: msg });
   }
   next(err);
+});
+
+// Catches anything else thrown/rejected by a route (the async-handler wrapper above turns
+// a rejected promise into this, instead of an unhandled rejection that crashes the function).
+// Logged server-side (visible in Netlify's function logs) so it's diagnosable without
+// leaking internals to the client.
+app.use((err, req, res, next) => {
+  console.error("Unhandled error in", req.method, req.path, err);
+  res.status(500).json({ error: "Something went wrong on our end. Try again in a moment." });
 });
 
 app.use((req, res) => {
