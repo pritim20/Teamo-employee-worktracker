@@ -348,10 +348,33 @@ T.shell = ({ me, nav, views, tagline }) => {
   document.getElementById("logoutBtn").onclick = async () => { await T.api("/api/logout", { method: "POST" }); location.href = "/"; };
   root.querySelectorAll(".nav a[data-view]").forEach((a) => (a.onclick = () => { location.hash = a.dataset.view; closeNav(); }));
 
-  let refreshTimer, pulseTimer;
+  // live updates: a Supabase Realtime broadcast fires on every write anywhere in the
+  // app (server/db.js's execute() sends it), replacing the old /api/pulse version-number
+  // poll — which can't exist as written server-side anyway, since Netlify Functions don't
+  // share process memory between invocations the way the old DATA_VERSION global did.
+  // Bursts of writes (e.g. saving several settings keys at once) are coalesced into one
+  // re-render, and a re-render never interrupts active typing or an open dialog.
+  let activeItem = null, activeView = null, pulseDebounce;
+  const triggerLiveRefresh = () => {
+    if (!activeItem || !activeView || document.hidden) return;
+    const a = document.activeElement;
+    if (document.querySelector(".overlay") || (a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName))) return;
+    views[activeItem.id](activeView).catch(() => {});
+  };
+  (async () => {
+    try {
+      const cfg = await fetch("/api/public-config").then((r) => r.json());
+      window.supabase.createClient(cfg.supabase_url, cfg.supabase_anon_key)
+        .channel("pulse")
+        .on("broadcast", { event: "changed" }, () => { clearTimeout(pulseDebounce); pulseDebounce = setTimeout(triggerLiveRefresh, 400); })
+        .subscribe();
+    } catch (e) { /* live updates are a nice-to-have; views still work without them */ }
+  })();
+
+  let refreshTimer;
   const route = async () => {
     clearInterval(refreshTimer);
-    clearInterval(pulseTimer);
+    activeItem = null; activeView = null;
     const id = location.hash.slice(1) || items[0].id;
     const item = items.find((n) => n.id === id) || items[0];
     root.querySelectorAll(".nav a[data-view]").forEach((a) => a.classList.toggle("active", a.dataset.view === item.id));
@@ -362,19 +385,7 @@ T.shell = ({ me, nav, views, tagline }) => {
     try {
       await views[item.id](view);
       view.firstElementChild?.classList.add("view");
-      // live updates: re-draw as soon as anyone changes data, but never while the user is typing or a dialog is open
-      let seen = (await T.api("/api/pulse").catch(() => ({}))).v;
-      pulseTimer = setInterval(async () => {
-        if (document.hidden) return;
-        try {
-          const { v } = await T.api("/api/pulse");
-          if (v === seen) return;
-          const a = document.activeElement;
-          if (document.querySelector(".overlay") || (a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName))) return;
-          seen = v;
-          await views[item.id](view);
-        } catch (e) { /* try again next tick */ }
-      }, 3000);
+      activeItem = item; activeView = view;
       if (item.refresh) refreshTimer = setInterval(() => views[item.id](view).catch(() => {}), item.refresh);
     } catch (e) {
       view.innerHTML = `<div class="card empty">${T.icon("alert")}<p class="mt">${T.esc(e.message)}</p></div>`;

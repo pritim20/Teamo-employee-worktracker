@@ -1,6 +1,7 @@
 // Postgres (Supabase) access, shaped like teamo/main.py's row()/rows()/execute()
 // helpers so ported routes read close to a transliteration of the Python originals.
 const { Pool, types } = require("pg");
+const { pulse } = require("./realtime");
 
 // node-postgres returns BIGINT (COUNT(*), etc.) as strings by default, to avoid
 // precision loss past Number.MAX_SAFE_INTEGER. Nothing in Teamo's counts gets
@@ -36,6 +37,7 @@ async function execute(sql, args = []) {
   const wantsId = !!m && !NO_ID_TABLES.has(m[1]) && !/RETURNING/i.test(pg);
   if (wantsId) pg += " RETURNING id";
   const r = await pool.query(pg, args);
+  pulse().catch(() => {}); // best-effort: a missed live-refresh nudge is never worth failing the write for
   return wantsId ? (r.rows[0] ? r.rows[0].id : null) : null;
 }
 
