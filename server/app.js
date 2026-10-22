@@ -3,6 +3,7 @@
 const crypto = require("crypto");
 const express = require("express");
 const cookieParser = require("cookie-parser");
+const multer = require("multer");
 
 const { row, rows, execute } = require("./db");
 const {
@@ -13,6 +14,7 @@ const { today, nowTime, nowTs, addDays, setting, audit, meetingState, inMeetingI
 const { ALL_PERMS, EMPLOYEE_PERMS, LOCKED, MAIL_KEYS, STATUSES } = require("./constants");
 const { mailConfig, sendMail, mailHtml, mailRegistrationReceived, mailCredentials, mailRejected } = require("./mail");
 const { broadcast } = require("./realtime");
+const { uploadFile, removeFiles, signedUrl } = require("./storage");
 
 const app = express();
 app.use(express.json());
@@ -326,8 +328,8 @@ app.delete("/api/tasks/:tid", requireStaff("tasks.manage"), async (req, res) => 
   const tid = Number(req.params.tid);
   const t = await row("SELECT * FROM tasks WHERE id=?", [tid]);
   if (!t) return res.status(404).json({ error: "Not found" });
-  // attachment files themselves move to Supabase Storage in a later phase; for now
-  // just clear the DB rows referencing this task.
+  const atts = await rows("SELECT stored FROM task_attachments WHERE task_id=? AND stored!=''", [tid]);
+  await removeFiles(atts.map((a) => a.stored)).catch(() => {});
   await execute("DELETE FROM task_attachments WHERE task_id=?", [tid]);
   await execute("DELETE FROM task_feedback WHERE task_id=?", [tid]);
   await execute("DELETE FROM task_comments WHERE task_id=?", [tid]);
@@ -385,9 +387,91 @@ app.post("/api/tasks/:tid/comments", requireLogin(), async (req, res) => {
   res.json({ ok: true });
 });
 
-// NOTE: file/link attachments (POST /api/tasks/:tid/attachments, GET /api/attachments/:aid,
-// DELETE /api/task-attachments/:aid) are deferred to the file-storage phase (Supabase
-// Storage instead of local disk — serverless has no persistent disk to save to at all).
+const MAX_FILE_MB = 10, MAX_FILES = 5;
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: MAX_FILE_MB * 1024 * 1024, files: MAX_FILES } });
+
+function secureFilename(name) {
+  name = String(name || "").split(/[/\\]/).pop(); // drop any directory part the browser sent
+  name = name.normalize("NFKD").replace(/[̀-ͯ]/g, "");
+  name = name.replace(/[^A-Za-z0-9_.-]/g, "_").replace(/_+/g, "_").replace(/^\.+/, "");
+  return name.slice(0, 200) || "file";
+}
+
+function cleanLinks(raw) {
+  return (raw || "").replace(/,/g, "\n").split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
+    .map((u) => (/^https?:\/\//i.test(u) ? u : "https://" + u).slice(0, 500));
+}
+
+app.post("/api/tasks/:tid/attachments", requireLogin(), upload.array("files", MAX_FILES), async (req, res) => {
+  const tid = Number(req.params.tid);
+  const u = req.user;
+  const [t, staff] = await taskForUser(req, tid);
+  if (!t) return res.status(404).json({ error: "Task not found" });
+  if (t.status === "Approved") return res.status(400).json({ error: "This task is already approved" });
+  if (!staff) {
+    const g = await needsPerm(req, "tasks.work", "work on tasks");
+    if (g) return res.status(403).json(g);
+    if (t.status !== "In Progress") return res.status(400).json({ error: "Start the task before attaching work" });
+  }
+  const files = req.files || [];
+  const links = cleanLinks((req.body || {}).links);
+  if (!files.length && !links.length) return res.status(400).json({ error: "Choose a file or paste a link" });
+  for (const l of links) {
+    const afterScheme = l.split("//")[1] || "";
+    if (l.includes(" ") || !afterScheme.includes(".")) return res.status(400).json({ error: `'${l}' doesn't look like a valid link` });
+  }
+  const saved = [];
+  for (const f of files) {
+    if (f.size === 0) { await removeFiles(saved.map(([, st]) => st)).catch(() => {}); return res.status(400).json({ error: `${f.originalname} is empty` }); }
+    const name = secureFilename(f.originalname);
+    const stored = crypto.randomBytes(16).toString("hex") + "_" + name;
+    try {
+      await uploadFile(stored, f.buffer, f.mimetype);
+    } catch (e) {
+      await removeFiles(saved.map(([, st]) => st)).catch(() => {});
+      return res.status(500).json({ error: "Couldn't save the file. Try again." });
+    }
+    saved.push([name, stored]);
+  }
+  for (const [name, stored] of saved) {
+    await execute("INSERT INTO task_attachments(task_id,filename,stored,uploaded_by,ts) VALUES(?,?,?,?,?)", [tid, name, stored, u.name, nowTs()]);
+  }
+  for (const l of links) {
+    await execute("INSERT INTO task_attachments(task_id,filename,stored,url,uploaded_by,ts) VALUES(?,?,?,?,?,?)", [tid, l, "", l, u.name, nowTs()]);
+  }
+  const bits = [];
+  if (saved.length) bits.push(`${saved.length} file${saved.length !== 1 ? "s" : ""}`);
+  if (links.length) bits.push(`${links.length} link${links.length !== 1 ? "s" : ""}`);
+  await logTask(req, tid, "file", "attached " + bits.join(" and "), [...saved.map(([n]) => n), ...links].join(", "));
+  await audit(req, "TASK_ATTACH", `${bits.join(" and ")} attached to task #${tid}`);
+  res.json({ ok: true });
+});
+
+app.get("/api/attachments/:aid", requireLogin(), async (req, res) => {
+  const aid = Number(req.params.aid);
+  const a = await row("SELECT * FROM task_attachments WHERE id=?", [aid]);
+  const [t] = a ? await taskForUser(req, a.task_id) : [null, false];
+  if (!t || !a.stored) return res.status(404).json({ error: "File not found" });
+  try {
+    res.redirect(await signedUrl(a.stored, 60, a.filename));
+  } catch (e) {
+    res.status(404).json({ error: "File not found" });
+  }
+});
+
+app.delete("/api/task-attachments/:aid", requireLogin(), async (req, res) => {
+  const aid = Number(req.params.aid);
+  const a = await row("SELECT * FROM task_attachments WHERE id=?", [aid]);
+  const [t, staff] = a ? await taskForUser(req, a.task_id) : [null, false];
+  if (!t) return res.status(404).json({ error: "Not found" });
+  if (!staff && (a.uploaded_by !== req.user.name || !["Assigned", "In Progress"].includes(t.status))) {
+    return res.status(403).json({ error: "You can only remove your own attachments before submitting" });
+  }
+  if (a.stored) await removeFiles([a.stored]).catch(() => {});
+  await execute("DELETE FROM task_attachments WHERE id=?", [aid]);
+  await logTask(req, a.task_id, "file", "removed an attachment", a.url || a.filename);
+  res.json({ ok: true });
+});
 
 app.post("/api/tasks/:tid/review", requireStaff("tasks.manage"), async (req, res) => {
   const tid = Number(req.params.tid);
@@ -1129,6 +1213,16 @@ app.post("/api/rooms/:code/admit", requireLogin(), async (req, res) => {
   const status = b.decision === "approve" ? "approved" : "denied";
   await execute("UPDATE meeting_join_requests SET status=? WHERE meeting_id=? AND user_id=?", [status, m.id, Number(b.user_id) || 0]);
   res.json({ ok: true });
+});
+
+app.use((err, req, res, next) => {
+  if (err instanceof multer.MulterError) {
+    const msg = err.code === "LIMIT_FILE_SIZE" ? `A file is larger than ${MAX_FILE_MB} MB`
+      : err.code === "LIMIT_FILE_COUNT" || err.code === "LIMIT_UNEXPECTED_FILE" ? `Attach up to ${MAX_FILES} files at a time`
+      : "Upload failed";
+    return res.status(400).json({ error: msg });
+  }
+  next(err);
 });
 
 app.use((req, res) => {
