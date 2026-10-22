@@ -1,4 +1,8 @@
-/* Teamo Meet: in-house video meetings. Media is WebRTC peer-to-peer (mesh); this server only relays the signalling. */
+/* Teamo Meet: in-house video meetings. Media is WebRTC peer-to-peer (mesh); signalling
+   (who's in the room, mic/cam/hand/sharing state, offer/answer/ICE, reactions) travels
+   browser-to-browser over Supabase Realtime Presence + Broadcast on a channel named
+   after the room code — this server only still gates host-authorized actions (admit,
+   force-mute, remove, end) and persists chat, exactly like room_guard() did before. */
 (() => {
   const code = location.pathname.split("/").pop();
   const qs = new URLSearchParams(location.search);
@@ -33,7 +37,8 @@
   }
 
   /* ---------- state ---------- */
-  let info, pid = null, v = -1, chatSince = 0, reactSince = 0, roster = [], lobby = [], active = false, joinedAt = 0, ice = [];
+  let info, pid = null, chatSince = 0, roster = [], lobby = [], active = false, joinedAt = 0, ice = [];
+  let sb = null, channel = null;
   const local = { audio: null, video: null, screen: null };
   let micOn = true, camOn = true, sharing = false, hand = false, tab = "people", panelOpen = false, unread = 0;
   const peers = {}; // peerId -> { pc, stream, pending }
@@ -147,22 +152,76 @@
     $("go").disabled = true;
     try {
       const j = await api("/join", { method: "POST" });
-      pid = j.peer; chatSince = j.chat_since; reactSince = j.react_since || 0; active = true; joinedAt = Date.now(); v = -1;
+      pid = j.peer; chatSince = j.chat_since; active = true; joinedAt = Date.now();
       if (local.audio) local.audio.enabled = micOn;
       if (local.video) local.video.enabled = camOn;
       $("gate").style.display = "none"; $("room").classList.add("on");
       $("mtitle").textContent = info.title; $("bEnd").style.display = info.host ? "" : "none";
       buildBar(); if (!local.audio || !local.video) flash(`${!local.audio && !local.video ? "Your camera and microphone aren't" : !local.audio ? "Your microphone isn't" : "Your camera isn't"} available. Click the button to try again.`, 7000);
       $("chat").innerHTML = ""; j.history.forEach(addChat); unread = 0; updateDot();
-      roster = [{ peer: pid, ...info.me, name: info.me.name, mic: micOn, cam: camOn, hand: false, sharing: false, host: info.host }, ...j.others];
+      roster = [];
       renderTiles(); renderPeople();
-      for (const o of j.others) await connect(o.peer, true);
-      pollLoop(); tickTimer();
+      await setupRealtime();
+      tickTimer();
     } catch (e) { $("go").disabled = false; alert(e.message); }
   }
 
+  /* ---------- Supabase Realtime: presence (roster) + broadcast (signalling) ---------- */
+  async function setupRealtime() {
+    const cfg = await fetch("/api/public-config").then((r) => r.json());
+    sb = window.supabase.createClient(cfg.supabase_url, cfg.supabase_anon_key);
+    channel = sb.channel(`room:${code}`, { config: { presence: { key: pid } } });
+
+    channel.on("presence", { event: "sync" }, syncRoster);
+    channel.on("broadcast", { event: "signal" }, ({ payload }) => { if (payload.to === pid) onSignal(payload); });
+    channel.on("broadcast", { event: "force-mic" }, ({ payload }) => {
+      if (payload.peer !== pid) return;
+      micOn = payload.on && !!local.audio; if (local.audio) local.audio.enabled = micOn;
+      updateBar(); renderTiles(); pushState();
+      flash(payload.on ? "The host turned your microphone on." : "The host muted your microphone.");
+    });
+    channel.on("broadcast", { event: "removed" }, ({ payload }) => {
+      if (payload.peer !== pid || !active) return;
+      active = false; api("/leave", { method: "POST" }).catch(() => {});
+      left("You were removed from the meeting by the host.", true);
+    });
+    channel.on("broadcast", { event: "ended" }, () => {
+      if (!active) return;
+      active = false; api("/leave", { method: "POST" }).catch(() => {});
+      left("The host ended this meeting.", false);
+    });
+    channel.on("broadcast", { event: "reaction" }, ({ payload }) => showReaction(payload));
+    channel.on("postgres_changes", { event: "INSERT", schema: "public", table: "room_chat", filter: `room_code=eq.${code}` }, ({ new: m }) => {
+      if (m.id <= chatSince) return;
+      chatSince = Math.max(chatSince, m.id);
+      const msg = { id: m.id, name: m.name, user_id: m.user_id, text: m.text, time: (m.ts || "").slice(11, 16) };
+      addChat(msg);
+      if (!(panelOpen && tab === "chat") && msg.user_id !== info.me.id) { unread++; updateDot(); }
+    });
+
+    await channel.subscribe();
+    await pushState();
+    if (info.host) lobbyLoop();
+  }
+  function syncRoster() {
+    const state = channel.presenceState();
+    roster = Object.entries(state).map(([peer, metas]) => ({ peer, ...metas[metas.length - 1] }));
+    // mesh WebRTC: avoid a double-offer race by having the lexically-lower peer id always offer
+    roster.forEach((p) => { if (p.peer !== pid && !peers[p.peer] && pid < p.peer) connect(p.peer, true); });
+    reconcile(); renderTiles(); renderPeople();
+  }
+  function pushState() {
+    return channel?.track({ user_id: info.me.id, name: info.me.name, color: info.me.color, role: info.me.role, host: info.host, mic: micOn, cam: camOn, hand, sharing }) || Promise.resolve();
+  }
+  async function lobbyLoop() {
+    while (active && info.host) {
+      try { lobby = await api("/lobby"); renderPeople(); } catch (e) { /* transient; retry next tick */ }
+      await sleep(4000);
+    }
+  }
+
   /* ---------- WebRTC mesh ---------- */
-  const sig = (to, type, data) => api("/signal", { method: "POST", body: { from: pid, to, type, data } }).catch(() => {});
+  const sig = (to, type, data) => channel?.send({ type: "broadcast", event: "signal", payload: { from: pid, to, type, data } });
   function attachLocal(pc) {
     pc.getTransceivers().forEach((t) => {
       const track = t.receiver.track.kind === "audio" ? local.audio : outVideo();
@@ -214,28 +273,6 @@
     t && t.sender.replaceTrack(track || null).catch(() => {});
   });
 
-  /* ---------- polling loop ---------- */
-  async function pollLoop() {
-    while (active) {
-      try {
-        const r = await api(`/poll?peer=${pid}&v=${v}&chat=${chatSince}&react=${reactSince}`);
-        if (!active) break;
-        if (r.gone) { active = false; return left(r.kicked ? "You were removed from the meeting by the host." : "Your connection was interrupted.", true); }
-        v = r.v; roster = r.peers; lobby = r.lobby || [];
-        r.chat.forEach((m) => { chatSince = Math.max(chatSince, m.id); addChat(m); if (!(panelOpen && tab === "chat") && m.user_id !== info.me.id) { unread++; updateDot(); } });
-        (r.reactions || []).forEach((x) => { reactSince = Math.max(reactSince, x.id); showReaction(x); });
-        for (const s of r.signals) {
-          if (s.type === "force-mic") {
-            micOn = s.on && !!local.audio; if (local.audio) local.audio.enabled = micOn;
-            updateBar(); renderTiles(); flash(s.on ? "The host turned your microphone on." : "The host muted your microphone.");
-          } else await onSignal(s);
-        }
-        if (r.ended) { active = false; return left("The host ended this meeting.", false); }
-        reconcile(); renderTiles(); renderPeople();
-      } catch (e) { if (e.status === 403 || e.status === 410) { active = false; return left(e.message, false); } await sleep(2000); }
-    }
-  }
-
   /* ---------- UI ---------- */
   function updateBar() {
     $("bMic").innerHTML = micOn ? IC.mic : IC.micOff; $("bMic").classList.toggle("off", !micOn);
@@ -247,16 +284,15 @@
   }
   function buildBar() {
     $("bChat").innerHTML = IC.chat + '<span class="dot" id="chatDot"></span>'; $("bLeave").innerHTML = IC.leave;
-    const push = () => api("/state", { method: "POST", body: { peer: pid, mic: micOn, cam: camOn, hand, sharing } }).catch(() => {});
     $("bMic").onclick = async () => {
       if (!local.audio) { if (!(await ensureTrack("audio"))) return; micOn = true; } else micOn = !micOn;
-      local.audio.enabled = micOn; updateBar(); push(); renderTiles();
+      local.audio.enabled = micOn; updateBar(); pushState(); renderTiles();
     };
     $("bCam").onclick = async () => {
       if (!local.video) { if (!(await ensureTrack("video"))) return; camOn = true; } else camOn = !camOn;
-      local.video.enabled = camOn; updateBar(); push(); renderTiles();
+      local.video.enabled = camOn; updateBar(); pushState(); renderTiles();
     };
-    $("bHand").onclick = () => { hand = !hand; updateBar(); push(); };
+    $("bHand").onclick = () => { hand = !hand; updateBar(); pushState(); };
     $("bReact").onclick = (ev) => { ev.stopPropagation(); toggleReactionPicker(); };
     $("bShare").onclick = async () => {
       if (sharing) return stopShare();
@@ -264,13 +300,13 @@
       try {
         const s = await navigator.mediaDevices.getDisplayMedia({ video: true });
         local.screen = s.getVideoTracks()[0]; local.screen.onended = stopShare;
-        sharing = true; setVideoOut(local.screen); updateBar(); push(); renderTiles();
+        sharing = true; setVideoOut(local.screen); updateBar(); pushState(); renderTiles();
       } catch (e) { /* cancelled */ }
     };
     function stopShare() {
       if (!sharing) return;
       local.screen && local.screen.stop(); local.screen = null; sharing = false;
-      setVideoOut(local.video); updateBar(); push(); renderTiles();
+      setVideoOut(local.video); updateBar(); pushState(); renderTiles();
     }
     const panel = (t) => { if (panelOpen && tab === t) panelOpen = false; else { panelOpen = true; tab = t; } showPanel(); updateBar(); };
     $("bPeople").onclick = () => panel("people"); $("bChat").onclick = () => panel("chat");
@@ -328,12 +364,12 @@
       return `<div class="person"><div class="avatar" style="background:${esc(p.color)}">${esc(p.name[0])}</div>
       <div style="flex:1;min-width:0">${esc(p.name)}${p.peer === pid ? " (you)" : ""}${p.host ? ' <span class="muted">· host</span>' : ""}</div>${p.hand ? "✋" : ""}<span style="width:18px;opacity:.7">${p.mic ? "" : IC.micOff}</span>
       ${mod ? `<div class="row" style="gap:4px"><button type="button" class="pbtn" data-mic="${p.peer}" data-on="${p.mic ? 0 : 1}" title="${p.mic ? `Mute ${esc(p.name)}'s mic` : `Unmute ${esc(p.name)}'s mic`}">${p.mic ? IC.mic : IC.micOff}</button>
-        <button type="button" class="pbtn danger" data-remove="${p.peer}" title="Remove ${esc(p.name)} from the meeting">${IC.callEnd}</button></div>` : ""}</div>`; }).join("");
+        <button type="button" class="pbtn danger" data-remove="${p.peer}" data-uid="${p.user_id}" title="Remove ${esc(p.name)} from the meeting">${IC.callEnd}</button></div>` : ""}</div>`; }).join("");
     $("people").querySelectorAll("[data-adm]").forEach((b) => (b.onclick = () => { const [uid, decision] = b.dataset.adm.split(":"); api("/admit", { method: "POST", body: { user_id: Number(uid), decision } }).catch((e) => alert(e.message)); }));
     $("people").querySelectorAll("[data-mic]").forEach((b) => (b.onclick = () => api(`/mic/${b.dataset.mic}`, { method: "POST", body: { on: b.dataset.on === "1" } }).catch((e) => flash(e.message))));
     $("people").querySelectorAll("[data-remove]").forEach((b) => (b.onclick = async () => {
       if (!confirm("Remove this person from the meeting? They'll need to request to join again.")) return;
-      api(`/remove/${b.dataset.remove}`, { method: "POST" }).catch((e) => flash(e.message));
+      api(`/remove/${b.dataset.remove}`, { method: "POST", body: { user_id: Number(b.dataset.uid) || undefined } }).catch((e) => flash(e.message));
     }));
   }
   const tiles = {};
@@ -366,13 +402,15 @@
     f();
   }
   function leave() {
-    if (pid) navigator.sendBeacon?.(`/api/rooms/${code}/leave?peer=${pid}&as=${portal}`);
+    if (pid) navigator.sendBeacon?.(`/api/rooms/${code}/leave?as=${portal}`);
     active = false;
+    if (channel) { sb.removeChannel(channel); channel = null; }
   }
   function left(message, canRejoin) {
     active = false;
     Object.values(peers).forEach((e) => e.pc.close()); Object.keys(peers).forEach((k) => delete peers[k]);
     Object.keys(tiles).forEach((k) => { tiles[k].remove(); delete tiles[k]; });
+    if (channel) { sb.removeChannel(channel); channel = null; }
     stopLocal(); sharing = false; hand = false; panelOpen = false; showPanel();
     gate(`<h1>${esc(message)}</h1><p class="muted" style="margin:8px 0 18px">${esc(info.title)}</p>${canRejoin ? '<button class="btn primary" id="again">Rejoin</button>' : ""}`);
     $("again") && ($("again").onclick = () => { camOn = micOn = true; start(); });

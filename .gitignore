@@ -1,0 +1,17 @@
+# secrets — never commit
+.env
+.env.*
+teamo/.secret_key
+teamo/certs/
+
+# local data
+teamo/teamo.db
+teamo/uploads/
+
+# python
+__pycache__/
+*.pyc
+
+# netlify
+.netlify/
+node_modules/

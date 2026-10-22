@@ -18,6 +18,7 @@ import json
 import io
 import os
 import random
+import re
 import secrets
 import smtplib
 import ssl
@@ -28,20 +29,21 @@ import subprocess
 import threading
 import time
 import uuid
-import sqlite3
+import psycopg2
+import psycopg2.extras
+from dotenv import load_dotenv
 from datetime import date, datetime, timedelta
 from functools import wraps
 from urllib.parse import urlparse
 
 from flask import (Flask, Response, g, jsonify, redirect, request,
-                   send_file, send_from_directory, session)
+                   send_file, session)
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
 
+load_dotenv()
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-FRONTEND_DIR = os.path.join(BASE_DIR, "frontend")
-DB_PATH = os.path.join(BASE_DIR, "teamo.db")
-SECRET_FILE = os.path.join(BASE_DIR, ".secret_key")
+DATABASE_URL = os.environ["DATABASE_URL"]  # Supabase Postgres connection string
 UPLOAD_DIR = os.path.join(BASE_DIR, "uploads")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 MAX_FILE_MB, MAX_FILES = 10, 5
@@ -50,17 +52,7 @@ app = Flask(__name__, static_folder=None)
 app.config["MAX_CONTENT_LENGTH"] = (MAX_FILE_MB * MAX_FILES + 5) * 1024 * 1024
 
 
-def load_secret():
-    if os.path.exists(SECRET_FILE):
-        with open(SECRET_FILE) as f:
-            return f.read().strip()
-    key = secrets.token_hex(32)
-    with open(SECRET_FILE, "w") as f:
-        f.write(key)
-    return key
-
-
-app.secret_key = load_secret()
+app.secret_key = os.environ["SECRET_KEY"]  # fixed across all function instances, unlike the old per-machine file
 app.config.update(SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE="Lax",
                   PERMANENT_SESSION_LIFETIME=timedelta(hours=12))
 
@@ -87,60 +79,23 @@ STATUSES = ["Available", "Busy", "In Meeting", "On Break", "Away", "Offline"]
 COLORS = ["#6366f1", "#ec4899", "#f59e0b", "#10b981", "#06b6d4", "#8b5cf6", "#ef4444", "#14b8a6", "#f97316", "#3b82f6"]
 
 # ----------------------------------------------------------------- database
+# Postgres (Supabase). The table definitions live in supabase/schema.sql, run once
+# in the Supabase SQL editor — there's no local schema/migration step here anymore.
 
-SCHEMA = """
-CREATE TABLE IF NOT EXISTS users(
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  name TEXT NOT NULL, email TEXT UNIQUE NOT NULL, password TEXT NOT NULL,
-  role TEXT NOT NULL DEFAULT 'employee', department TEXT DEFAULT '',
-  designation TEXT DEFAULT '', phone TEXT DEFAULT '', joined TEXT,
-  status TEXT DEFAULT 'Offline', active INTEGER DEFAULT 1, color TEXT DEFAULT '#6366f1');
-CREATE TABLE IF NOT EXISTS tasks(
-  id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, description TEXT DEFAULT '',
-  assigned_to INTEGER, created_by INTEGER, priority TEXT DEFAULT 'Medium',
-  status TEXT DEFAULT 'Assigned', due_date TEXT, created_at TEXT, completed_at TEXT, work_note TEXT DEFAULT '', project TEXT DEFAULT '');
-CREATE TABLE IF NOT EXISTS attendance(
-  id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, date TEXT NOT NULL,
-  check_in TEXT, check_out TEXT, status TEXT DEFAULT 'Present', note TEXT DEFAULT '',
-  UNIQUE(user_id, date));
-CREATE TABLE IF NOT EXISTS breaks(
-  id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, date TEXT NOT NULL,
-  start_time TEXT NOT NULL, end_time TEXT);
-CREATE TABLE IF NOT EXISTS task_attachments(
-  id INTEGER PRIMARY KEY AUTOINCREMENT, task_id INTEGER NOT NULL, filename TEXT NOT NULL, stored TEXT NOT NULL,
-  uploaded_by TEXT, ts TEXT);
-CREATE TABLE IF NOT EXISTS task_feedback(
-  id INTEGER PRIMARY KEY AUTOINCREMENT, task_id INTEGER NOT NULL, kind TEXT NOT NULL, text TEXT DEFAULT '',
-  author TEXT, ts TEXT);
-CREATE TABLE IF NOT EXISTS meeting_join_requests(
-  meeting_id INTEGER, user_id INTEGER, status TEXT DEFAULT 'pending', ts TEXT, PRIMARY KEY(meeting_id, user_id));
-CREATE TABLE IF NOT EXISTS task_comments(
-  id INTEGER PRIMARY KEY AUTOINCREMENT, task_id INTEGER NOT NULL, user_id INTEGER, author TEXT, role TEXT,
-  text TEXT NOT NULL, ts TEXT);
-CREATE TABLE IF NOT EXISTS task_activity(
-  id INTEGER PRIMARY KEY AUTOINCREMENT, task_id INTEGER NOT NULL, kind TEXT, text TEXT, detail TEXT DEFAULT '',
-  actor TEXT, role TEXT, ts TEXT);
-CREATE TABLE IF NOT EXISTS meetings(
-  id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, description TEXT DEFAULT '',
-  date TEXT NOT NULL, start_time TEXT NOT NULL, end_time TEXT NOT NULL,
-  location TEXT DEFAULT '', created_by INTEGER);
-CREATE TABLE IF NOT EXISTS meeting_participants(
-  meeting_id INTEGER, user_id INTEGER, PRIMARY KEY(meeting_id, user_id));
-CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT);
-CREATE TABLE IF NOT EXISTS mail_log(
-  id INTEGER PRIMARY KEY AUTOINCREMENT, to_addr TEXT, subject TEXT, status TEXT, error TEXT DEFAULT '', ts TEXT);
-CREATE TABLE IF NOT EXISTS permissions(role TEXT, perm TEXT, allowed INTEGER, PRIMARY KEY(role, perm));
-CREATE TABLE IF NOT EXISTS audit_log(
-  id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, user_name TEXT,
-  action TEXT, details TEXT, ip TEXT, ts TEXT);
-"""
+# Tables whose primary key isn't a single auto-incrementing "id" column, so execute()
+# shouldn't try to append "RETURNING id" to inserts against them.
+NO_ID_TABLES = {"permissions", "settings", "meeting_participants", "meeting_join_requests"}
+
+
+def pg_connect():
+    conn = psycopg2.connect(DATABASE_URL, cursor_factory=psycopg2.extras.RealDictCursor)
+    conn.autocommit = False
+    return conn
 
 
 def db():
     if "db" not in g:
-        g.db = sqlite3.connect(DB_PATH)
-        g.db.row_factory = sqlite3.Row
-        g.db.execute("PRAGMA foreign_keys = ON")
+        g.db = pg_connect()
     return g.db
 
 
@@ -152,22 +107,36 @@ def close_db(_exc):
 
 
 def rows(sql, args=()):
-    return [dict(r) for r in db().execute(sql, args).fetchall()]
+    cur = db().cursor()
+    cur.execute(sql.replace("?", "%s"), args)
+    return [dict(r) for r in cur.fetchall()]
 
 
 def row(sql, args=()):
-    r = db().execute(sql, args).fetchone()
+    cur = db().cursor()
+    cur.execute(sql.replace("?", "%s"), args)
+    r = cur.fetchone()
     return dict(r) if r else None
 
 
 DATA_VERSION = [0]  # bumped on every write so open dashboards know when to refresh
 
 
+INSERT_TABLE_RE = re.compile(r"^\s*INSERT\s+INTO\s+(\w+)", re.IGNORECASE)
+
+
 def execute(sql, args=()):
-    cur = db().execute(sql, args)
+    sql = sql.replace("?", "%s")
+    m = INSERT_TABLE_RE.match(sql)
+    wants_id = bool(m) and m.group(1) not in NO_ID_TABLES and "RETURNING" not in sql.upper()
+    if wants_id:
+        sql += " RETURNING id"
+    cur = db().cursor()
+    cur.execute(sql, args)
+    new_id = cur.fetchone()["id"] if wants_id else None
     db().commit()
     DATA_VERSION[0] += 1
-    return cur.lastrowid
+    return new_id
 
 
 def today():
@@ -183,62 +152,39 @@ def now_ts():
 
 
 def init_db():
-    conn = sqlite3.connect(DB_PATH)
-    conn.executescript(SCHEMA)
-    if "project" not in [c[1] for c in conn.execute("PRAGMA table_info(tasks)")]:
-        conn.execute("ALTER TABLE tasks ADD COLUMN project TEXT DEFAULT ''")
-    for col in ("address", "gender", "personal_email"):
-        if col not in [c[1] for c in conn.execute("PRAGMA table_info(users)")]:
-            conn.execute(f"ALTER TABLE users ADD COLUMN {col} TEXT DEFAULT ''")
-    if "approval" not in [c[1] for c in conn.execute("PRAGMA table_info(users)")]:
-        conn.execute("ALTER TABLE users ADD COLUMN approval TEXT DEFAULT 'approved'")
-    if "room_code" not in [c[1] for c in conn.execute("PRAGMA table_info(meetings)")]:
-        conn.execute("ALTER TABLE meetings ADD COLUMN room_code TEXT DEFAULT ''")
-    if "ended_early" not in [c[1] for c in conn.execute("PRAGMA table_info(meetings)")]:
-        conn.execute("ALTER TABLE meetings ADD COLUMN ended_early INTEGER DEFAULT 0")
-    if "work_note" not in [c[1] for c in conn.execute("PRAGMA table_info(tasks)")]:
-        conn.execute("ALTER TABLE tasks ADD COLUMN work_note TEXT DEFAULT ''")
-    conn.execute("INSERT INTO task_activity(task_id,kind,text,actor,role,ts) SELECT t.id,'created','created the task',"
-                 "COALESCE(c.name,'Admin'),COALESCE(c.role,'admin'),COALESCE(t.created_at,'') FROM tasks t LEFT JOIN users c ON c.id=t.created_by "
-                 "WHERE NOT EXISTS (SELECT 1 FROM task_activity a WHERE a.task_id=t.id)")
-    conn.execute("DROP TABLE IF EXISTS documents")
-    conn.execute("DROP TABLE IF EXISTS document_versions")
-    conn.execute("DELETE FROM permissions WHERE perm LIKE 'documents.%'")
-    if "url" not in [c[1] for c in conn.execute("PRAGMA table_info(task_attachments)")]:
-        conn.execute("ALTER TABLE task_attachments ADD COLUMN url TEXT DEFAULT ''")
-    for p in ALL_PERMS:
-        conn.execute("INSERT OR IGNORE INTO permissions VALUES('manager',?,?)", (p, int(MANAGER_DEFAULT[p])))
-        conn.execute("INSERT OR IGNORE INTO permissions VALUES('admin',?,1)", (p,))
-    for p in EMPLOYEE_PERMS:
-        conn.execute("INSERT OR IGNORE INTO permissions VALUES('employee',?,1)", (p,))
-    conn.execute("UPDATE tasks SET status='Assigned' WHERE status='Pending'")
-    conn.execute("UPDATE tasks SET status='Approved' WHERE status='Completed'")
-    if conn.execute("SELECT COUNT(*) FROM users").fetchone()[0] == 0:
-        seed(conn)
-    conn.commit()
-    conn.close()
+    """Idempotent: safe to call on every startup. The schema itself lives in supabase/schema.sql
+    (run once by hand in the Supabase SQL editor) — this only seeds permissions and, on a
+    brand new database, the demo accounts."""
+    with app.app_context():
+        for p in ALL_PERMS:
+            execute("INSERT INTO permissions VALUES('manager',?,?) ON CONFLICT (role,perm) DO NOTHING", (p, int(MANAGER_DEFAULT[p])))
+            execute("INSERT INTO permissions VALUES('admin',?,1) ON CONFLICT (role,perm) DO NOTHING", (p,))
+        for p in EMPLOYEE_PERMS:
+            execute("INSERT INTO permissions VALUES('employee',?,1) ON CONFLICT (role,perm) DO NOTHING", (p,))
+        if row("SELECT COUNT(*) c FROM users")["c"] == 0:
+            seed()
 
 
-def seed(conn):
+def seed():
     print("  Creating demo accounts ...")
     t0 = date.today()
     defaults = {"company_name": "Teamo Technologies", "work_start": "09:30", "work_end": "18:30",
                 "late_grace_minutes": "10", "timezone": "Asia/Kolkata", "week_start": "Monday"}
     for k, v in defaults.items():
-        conn.execute("INSERT INTO settings VALUES(?,?)", (k, v))
-    # permissions are already seeded above in init_db() (INSERT OR IGNORE), before users count is checked
+        execute("INSERT INTO settings VALUES(?,?)", (k, v))
+    # permissions are already seeded above in init_db(), before users count is checked
 
     people = [
         ("Aarav Admin", "admin@teamo.com", "admin123", "admin", "Management", "Administrator"),
         ("Priya Sharma", "priya@teamo.com", "emp123", "employee", "Engineering", "Frontend Developer"),
     ]
     for i, (n, e, pw, r, d, des) in enumerate(people):
-        conn.execute("INSERT INTO users(name,email,password,role,department,designation,phone,joined,status,color)"
-                     " VALUES(?,?,?,?,?,?,?,?,?,?)",
-                     (n, e, generate_password_hash(pw), r, d, des, "", t0.isoformat(), "Offline" if r == "employee" else "Available",
-                      COLORS[i % len(COLORS)]))
-    conn.execute("INSERT INTO audit_log(user_id,user_name,action,details,ip,ts) VALUES(1,'System','SEED','Demo accounts created','-',?)",
-                 (now_ts(),))
+        execute("INSERT INTO users(name,email,password,role,department,designation,phone,joined,status,color)"
+                " VALUES(?,?,?,?,?,?,?,?,?,?)",
+                (n, e, generate_password_hash(pw), r, d, des, "", t0.isoformat(), "Offline" if r == "employee" else "Available",
+                 COLORS[i % len(COLORS)]))
+    execute("INSERT INTO audit_log(user_id,user_name,action,details,ip,ts) VALUES(1,'System','SEED','Demo accounts created','-',?)",
+            (now_ts(),))
 
 
 # ----------------------------------------------------------------- email (SMTP configured from the Settings page)
@@ -252,9 +198,10 @@ def mail_config():
 
 def log_mail(to, subject, status, error=""):
     """Own connection: this also runs from the background sender thread, outside any request."""
-    conn = sqlite3.connect(DB_PATH)
-    conn.execute("INSERT INTO mail_log(to_addr,subject,status,error,ts) VALUES(?,?,?,?,?)", (to, subject, status, error[:300], now_ts()))
-    conn.execute("DELETE FROM mail_log WHERE id NOT IN (SELECT id FROM mail_log ORDER BY id DESC LIMIT 100)")
+    conn = pg_connect()
+    cur = conn.cursor()
+    cur.execute("INSERT INTO mail_log(to_addr,subject,status,error,ts) VALUES(%s,%s,%s,%s,%s)", (to, subject, status, error[:300], now_ts()))
+    cur.execute("DELETE FROM mail_log WHERE id NOT IN (SELECT id FROM mail_log ORDER BY id DESC LIMIT 100)")
     conn.commit()
     conn.close()
 
@@ -449,40 +396,18 @@ def in_meeting_ids():
     d, t = today(), now_time()
     ids = {r["user_id"] for r in rows(
         "SELECT mp.user_id FROM meetings m JOIN meeting_participants mp ON mp.meeting_id=m.id "
-        "WHERE m.date=? AND m.start_time<=? AND m.end_time>? AND NOT m.ended_early", (d, t, t))}
+        "WHERE m.date=? AND m.start_time<=? AND m.end_time>? AND m.ended_early=0", (d, t, t))}
     ids |= {r["id"] for r in rows("SELECT id FROM users WHERE status='In Meeting' AND active=1 AND role='employee'")}
     return ids
 
 
-# ----------------------------------------------------------------- pages (frontend)
-
-@app.route("/")
-def page_login():
-    return send_from_directory(FRONTEND_DIR, "login.html")
-
-
-@app.route("/admin")
-def page_admin():
-    u = current_user()
-    if not u or u["role"] == "employee":
-        return redirect("/")
-    return send_from_directory(FRONTEND_DIR, "admin.html")
-
-
-@app.route("/employee")
-def page_employee():
-    u = current_user()
-    if not u or u["role"] != "employee":
-        return redirect("/")
-    return send_from_directory(FRONTEND_DIR, "employee.html")
-
-
-@app.route("/static/<path:path>")
-def static_files(path):
-    return send_from_directory(FRONTEND_DIR, path)
-
-
 # ----------------------------------------------------------------- auth API
+# Frontend pages (login.html, admin.html, employee.html, meet.html, /static/*) are served
+# directly by Netlify as static files — see netlify.toml — not by Flask anymore. The
+# server-side "wrong portal -> redirect to /" guard that used to live in page_admin()/
+# page_employee() is now purely client-side: T.api() already sends a logged-out user back
+# to "/" on a 401 from any API call (frontend/js/common.js), and the dashboards only ever
+# render after a successful authenticated fetch.
 
 @app.post("/api/login")
 def api_login():
@@ -983,11 +908,6 @@ def room_guard(code, need_approved=True):
     return (m, u, host), None
 
 
-@app.route("/meet/<code>")
-def page_meet(code):
-    return send_from_directory(FRONTEND_DIR, "meet.html")
-
-
 @app.get("/api/rooms/<code>/info")
 def room_info(code):
     m, u, host, access = room_access(code)
@@ -1008,7 +928,7 @@ def room_request(code):
     if not m:
         return jsonify(error="Meeting room not found"), 404
     if access in ("none", "denied"):
-        execute("INSERT OR REPLACE INTO meeting_join_requests VALUES(?,?,'pending',?)", (m["id"], u["id"], now_ts()))
+        execute("INSERT INTO meeting_join_requests VALUES(?,?,'pending',?) ON CONFLICT (meeting_id,user_id) DO UPDATE SET status='pending', ts=EXCLUDED.ts", (m["id"], u["id"], now_ts()))
         audit("MEETING_JOIN_REQUEST", f"Requested to join '{m['title']}'")
         room_poke(code)
     return jsonify(ok=True)
@@ -1366,7 +1286,7 @@ def save_meeting(b, mid=None):
                       (b["title"], b.get("description", ""), b["date"], b["start_time"], b["end_time"], location,
                        current_user()["id"], code))
     for uid in set(b.get("participants") or []):
-        execute("INSERT OR IGNORE INTO meeting_participants VALUES(?,?)", (mid, int(uid)))
+        execute("INSERT INTO meeting_participants VALUES(?,?) ON CONFLICT (meeting_id,user_id) DO NOTHING", (mid, int(uid)))
     return mid, None
 
 
@@ -1891,7 +1811,7 @@ def me_join_request(mid):
         return jsonify(error="This meeting has ended"), 400
     if m["join_status"] in ("pending", "approved"):
         return jsonify(error=f"Your request is already {m['join_status']}"), 400
-    execute("INSERT OR REPLACE INTO meeting_join_requests VALUES(?,?,'pending',?)", (mid, u["id"], now_ts()))
+    execute("INSERT INTO meeting_join_requests VALUES(?,?,'pending',?) ON CONFLICT (meeting_id,user_id) DO UPDATE SET status='pending', ts=EXCLUDED.ts", (mid, u["id"], now_ts()))
     audit("MEETING_JOIN_REQUEST", f"Requested to join '{m['title']}'")
     rc = row("SELECT room_code FROM meetings WHERE id=?", (mid,))
     if rc and rc["room_code"]:
