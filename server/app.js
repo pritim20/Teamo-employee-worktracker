@@ -289,7 +289,9 @@ app.post("/api/registrations/:uid/decision", requireStaff("employees.manage"), a
     await audit(req, "REGISTRATION_APPROVE", `Approved ${u.name} as ${login}`);
     // The frontend already has a graceful fallback for emailed:false — it shows the
     // credentials for the admin to share manually if sending fails or mail isn't set up.
-    const baseUrl = `${req.protocol}://${req.get("host")}`;
+    // ?portal=employee locks login.html into the employee-only view (no admin/manager
+    // toggle shown at all) — see teamo/frontend/login.html.
+    const baseUrl = `${req.protocol}://${req.get("host")}/?portal=employee`;
     const err = await mailCredentials(u, login, pw, baseUrl);
     return res.json({ ok: true, emailed: !err, error: err || undefined, personal_email: u.personal_email });
   }

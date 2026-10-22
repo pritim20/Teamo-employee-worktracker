@@ -38,7 +38,12 @@
 document.getElementById("lg1").innerHTML = T.logo;
 document.getElementById("pa").innerHTML = T.icon("shield")+"Admin / Manager";
 document.getElementById("pe").innerHTML = T.icon("user")+"Employee";
-let portal = "admin";
+// A link can lock the page to one portal (e.g. the "sign in" link in the approval email
+// uses ?portal=employee) so the admin/manager option never shows there at all.
+const lockedPortal = new URLSearchParams(location.search).get("portal");
+const portalLocked = lockedPortal === "admin" || lockedPortal === "employee";
+let portal = portalLocked ? lockedPortal : "admin";
+if (portalLocked) document.getElementById("portal").style.display = "none";
 const setPortal = (p) => {
   portal = p;
   document.querySelectorAll("#portal button").forEach(b => b.classList.toggle("on", b.dataset.p === p));
@@ -46,6 +51,7 @@ const setPortal = (p) => {
   document.getElementById("sub").textContent = p === "admin" ? "Sign in to manage your team" : "Sign in with your work email to start your day";
   document.getElementById("err").style.display = "none";
 };
+setPortal(portal);
 document.querySelectorAll("#portal button").forEach(b => b.onclick = () => setPortal(b.dataset.p));
 document.getElementById("lf").onsubmit = async (e) => {
   e.preventDefault();
@@ -66,7 +72,7 @@ const setMode = (r) => {
   document.getElementById("lf").style.display = r ? "none" : "";
   document.getElementById("rf").style.display = r ? "" : "none";
   document.getElementById("rdone").style.display = "none";
-  document.getElementById("portal").style.display = r ? "none" : "";
+  document.getElementById("portal").style.display = (r || portalLocked) ? "none" : "";
   document.getElementById("ttl").textContent = r ? "Create your account" : (portal === "admin" ? "Welcome back, Admin" : "Hello there 👋");
   document.getElementById("sub").textContent = r ? "Register with your personal email. After approval, your manager emails you your company email id and password." : (portal === "admin" ? "Sign in to manage your team" : "Sign in with your work email to start your day");
   document.getElementById("swlead").textContent = r ? "Already registered?" : "New here?";
