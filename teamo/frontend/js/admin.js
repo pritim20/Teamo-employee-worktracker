@@ -392,7 +392,10 @@ V.settings = async (el) => {
     <form class="card" id="pf"><div class="card-h"><h3>Change your password</h3></div><div class="form-grid">
     ${T.field("Current password", "current", "", "password", "full")}${T.field("New password", "new", "", "password")}${T.field("Confirm", "confirm", "", "password")}</div>
     <button class="btn primary mt">${T.icon("lock")}Update password</button>
-    <div class="card mt" style="background:var(--surface-2);box-shadow:none"><div class="bold">Signed in as</div><div class="mt" style="margin-top:10px">${T.person(ME.user, ME.user.email)}</div></div></form></div>`;
+    <div class="card mt" style="background:var(--surface-2);box-shadow:none"><div class="bold">Signed in as</div><div class="mt" style="margin-top:10px">${T.person(ME.user, ME.user.email)}</div></div></form>
+    ${ME.user.role === "admin" ? `<div class="card"><div class="card-h"><h3>Admins</h3></div>
+      <p class="small muted" style="margin-bottom:14px">Give someone else full admin access to Teamo.</p>
+      <button class="btn primary" id="newAdmin">${T.icon("plus")}Create new admin</button></div>` : ""}</div>`;
   el.querySelector("#sf").onsubmit = async (e) => {
     e.preventDefault();
     try { await T.api("/api/settings", { method: "PUT", body: Object.fromEntries(new FormData(e.target)) }); T.toast("Settings saved"); } catch (er) { T.toast(er.message, "err"); }
@@ -403,6 +406,14 @@ V.settings = async (el) => {
     if (f.new !== f.confirm) return T.toast("Passwords don't match", "err");
     try { await T.api("/api/account/password", { method: "PUT", body: f }); T.toast("Password updated"); e.target.reset(); } catch (er) { T.toast(er.message, "err"); }
   };
+  el.querySelector("#newAdmin")?.addEventListener("click", async () => {
+    const body = `<div class="form-grid">${T.field("Full name", "name", "")}${T.field("Email", "email", "", "email")}
+      ${T.field("Password", "password", "", "password")}${T.field("Phone", "phone", "")}</div>`;
+    const f = await T.modal({ title: "Create new admin", body, submit: "Create admin" });
+    if (!f) return;
+    try { await T.api("/api/employees", { method: "POST", body: { ...f, role: "admin" } }); T.toast("Admin account created"); }
+    catch (er) { T.toast(er.message, "err"); }
+  });
 };
 
 /* ---------------- Email notifications (shown on the Permissions page) ---------------- */
@@ -462,19 +473,6 @@ V.permissions = async (el) => {
   });
 };
 
-/* ---------------- Audit log ---------------- */
-V.audit = async (el, q = "") => {
-  const logs = await T.api(`/api/audit?q=${encodeURIComponent(q)}`);
-  const color = (a) => a.includes("DELETE") || a.includes("FAILED") ? "red" : a.includes("CREATE") ? "green" : a.includes("LOGIN") || a.includes("LOGOUT") ? "violet" : a.includes("CHECK") ? "cyan" : "blue";
-  el.innerHTML = `<div><div class="toolbar"><div class="search">${T.icon("search")}<input class="input" id="q" value="${T.esc(q)}" placeholder="Search user, action, details"></div><div class="grow"></div><span class="muted small">${logs.length} entries (latest 500)</span></div>
-    <div class="card"><div class="table-wrap"><table><thead><tr><th>Time</th><th>User</th><th>Action</th><th>Details</th><th>IP</th></tr></thead><tbody>
-    ${logs.map((l) => `<tr><td class="small muted" style="white-space:nowrap">${T.esc(l.ts)}</td><td class="bold">${T.esc(l.user_name)}</td><td><span class="badge b-${color(l.action)}">${T.esc(l.action)}</span></td>
-    <td>${T.esc(l.details)}</td><td class="small muted">${T.esc(l.ip)}</td></tr>`).join("") || '<tr><td colspan="5" class="empty">No entries</td></tr>'}</tbody></table></div></div></div>`;
-  let t;
-  const inp = el.querySelector("#q");
-  inp.oninput = (e) => { clearTimeout(t); t = setTimeout(async () => { await V.audit(el, e.target.value); const n = el.querySelector("#q"); n.focus(); n.setSelectionRange(n.value.length, n.value.length); }, 350); };
-};
-
 T.boot("admin", async (me) => {
   ME = me;
   await loadEmployees().catch(() => {});
@@ -489,7 +487,6 @@ T.boot("admin", async (me) => {
       { id: "reports", label: "Reports & Analytics", icon: "chart", perm: "reports.view" },
       { id: "settings", label: "Settings", icon: "cog", sub: "System preferences and account" },
       { id: "permissions", label: "Permissions", icon: "shield", sub: "Role-based access control" },
-      { id: "audit", label: "Audit Log", icon: "activity", perm: "audit.view" },
     ],
   });
 });
