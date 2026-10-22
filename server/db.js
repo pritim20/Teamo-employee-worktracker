@@ -10,7 +10,18 @@ const { pulse } = require("./realtime");
 // string and breaks arithmetic/comparisons throughout the frontend.
 types.setTypeParser(20, (v) => parseInt(v, 10)); // int8/bigint
 
-const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+// Tuned for serverless: each function invocation can get its own module instance (a fresh
+// Pool), so the default of up to 10 connections per Pool adds up fast against Supabase's
+// pooler connection cap under concurrent/bursty traffic. A small max + short idle timeout
+// means a container that goes idle releases its connections quickly instead of holding
+// them until the container is recycled.
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  max: 3,
+  idleTimeoutMillis: 10_000,
+  connectionTimeoutMillis: 10_000,
+});
+pool.on("error", (err) => console.error("Unexpected idle Postgres client error", err)); // an idle pooled connection dying shouldn't crash the function the next time it's reused
 
 // "?" placeholders (same convention as the old SQLite/psycopg2 code) -> "$1,$2,..."
 function toPg(sql) {
