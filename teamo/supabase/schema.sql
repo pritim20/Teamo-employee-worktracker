@@ -189,3 +189,12 @@ ALTER PUBLICATION supabase_realtime ADD TABLE room_chat;
 -- link itself, not a new exposure — but it's a real, accepted trade-off, not a false one.
 ALTER TABLE room_chat ENABLE ROW LEVEL SECURITY;
 CREATE POLICY room_chat_select_anon ON room_chat FOR SELECT USING (true);
+
+-- ---------------------------------------------------------------------------
+-- Storage bucket for task attachments (server/storage.js). Private: reads go
+-- through a short-lived signed URL from the Express backend, never direct anon
+-- access, so no Storage RLS policy is needed here.
+-- ---------------------------------------------------------------------------
+INSERT INTO storage.buckets (id, name, public, file_size_limit)
+VALUES ('task-attachments', 'task-attachments', false, 10000000)
+ON CONFLICT (id) DO NOTHING;

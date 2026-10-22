@@ -1,6 +1,7 @@
 # secrets — never commit
 .env
 .env.*
+!.env.example
 teamo/.secret_key
 teamo/certs/
 
@@ -11,6 +12,9 @@ teamo/uploads/
 # python
 __pycache__/
 *.pyc
+
+# logs
+*.log
 
 # netlify
 .netlify/

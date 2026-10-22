@@ -4,7 +4,9 @@
   "version": "1.0.0",
   "description": "Teamo backend (Netlify Functions / Express)",
   "scripts": {
-    "dev": "netlify dev"
+    "dev": "netlify dev",
+    "dev:fast": "node server/local.js",
+    "seed": "node server/seed.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.47.10",

@@ -1,5 +1,11 @@
 # Teamo — Employee Work Tracking
 
+> **This describes the original Flask + SQLite version.** The deployed runtime is now a
+> Node.js backend on Netlify + Supabase — see [`DEPLOY.md`](../DEPLOY.md) at the repo
+> root. `main.py` is kept here as a reference (every Node route was ported from it) and
+> still runs standalone if you want it, but it's a separate app with its own local
+> database, not what Netlify serves.
+
 One command runs the backend (Flask + SQLite) and serves the frontend.
 
 ## Run
