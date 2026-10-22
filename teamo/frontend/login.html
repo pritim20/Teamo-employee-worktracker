@@ -30,10 +30,6 @@
       </form>
       <div id="rdone" style="display:none" class="demo"><b>Registration received</b><br>A manager will review your request. Once approved, your company email id and password will be sent to your personal email, and then you can sign in.</div>
       <div class="sub" style="margin:18px 0 0;text-align:center"><span id="swlead">New here?</span> <a href="#" id="swlink" style="color:var(--brand);font-weight:600">Create an account</a></div>
-      <div class="demo"><b>Demo accounts</b> — click to fill<br>
-        <button data-e="admin@teamo.com" data-pw="admin123" data-p="admin">Admin · admin@teamo.com / admin123</button>
-        <button data-e="priya@teamo.com" data-pw="emp123" data-p="employee">Employee · priya@teamo.com / emp123</button>
-      </div>
     </div>
   </div>
 </div>
@@ -51,10 +47,6 @@ const setPortal = (p) => {
   document.getElementById("err").style.display = "none";
 };
 document.querySelectorAll("#portal button").forEach(b => b.onclick = () => setPortal(b.dataset.p));
-document.querySelectorAll(".demo button").forEach(b => b.onclick = () => {
-  setPortal(b.dataset.p);
-  const f = document.getElementById("lf"); f.email.value = b.dataset.e; f.password.value = b.dataset.pw;
-});
 document.getElementById("lf").onsubmit = async (e) => {
   e.preventDefault();
   const err = document.getElementById("err"), btn = document.getElementById("go");
@@ -75,7 +67,6 @@ const setMode = (r) => {
   document.getElementById("rf").style.display = r ? "" : "none";
   document.getElementById("rdone").style.display = "none";
   document.getElementById("portal").style.display = r ? "none" : "";
-  document.querySelector(".demo").style.display = r ? "none" : "";
   document.getElementById("ttl").textContent = r ? "Create your account" : (portal === "admin" ? "Welcome back, Admin" : "Hello there 👋");
   document.getElementById("sub").textContent = r ? "Register with your personal email. After approval, your manager emails you your company email id and password." : (portal === "admin" ? "Sign in to manage your team" : "Sign in with your work email to start your day");
   document.getElementById("swlead").textContent = r ? "Already registered?" : "New here?";
