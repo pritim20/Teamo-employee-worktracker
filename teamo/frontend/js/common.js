@@ -76,7 +76,13 @@ T.statusBadge = (s) => s === "In Meeting" ? `<span class="badge b-violet ic">${T
 
 T.fmtDate = (d) => d ? new Date(d + "T00:00:00").toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }) : "—";
 T.fmtTime = (t) => { if (!t) return "—"; const [h, m] = t.split(":").map(Number); return `${((h + 11) % 12) + 1}:${String(m).padStart(2, "0")} ${h >= 12 ? "PM" : "AM"}`; };
-T.today = () => { const d = new Date(); return new Date(d - d.getTimezoneOffset() * 6e4).toISOString().slice(0, 10); };
+// Company time: the server tells us the current time in the company timezone (/api/me), and we keep the
+// difference to this device's clock. Everything on screen (top-right clock, "today", hours worked) then agrees
+// with the check-in times the server stores, even when the device is set to another timezone.
+T.clockOffset = 0;
+T.now = () => new Date(Date.now() + T.clockOffset);
+T.syncClock = (serverTime) => { const t = serverTime && new Date(serverTime.replace(" ", "T")); if (t && !isNaN(t)) T.clockOffset = t - Date.now(); };
+T.today = () => { const d = T.now(), p = (n) => String(n).padStart(2, "0"); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`; };
 T.addDays = (iso, n) => { const d = new Date(iso + "T00:00:00"); d.setDate(d.getDate() + n); return new Date(d - d.getTimezoneOffset() * 6e4).toISOString().slice(0, 10); };
 
 /* toast */
@@ -324,14 +330,14 @@ T.shell = ({ me, nav, views, tagline }) => {
         <button class="icon-btn menu-btn" id="menuBtn">${T.icon("menu")}</button>
         <div><h1 id="pageTitle">Dashboard</h1><div class="sub" id="pageSub"></div></div>
         <div class="spacer"></div>
-        <div class="clock">${T.icon("clock")}<b id="clockT"></b><span id="clockD"></span></div>
+        <div class="clock" title="Company time${T.timezone ? " (" + T.timezone + ")" : ""}">${T.icon("clock")}<b id="clockT"></b><span id="clockD"></span></div>
         <button class="icon-btn" id="themeBtn" title="Toggle theme">${T.icon(document.documentElement.dataset.theme === "dark" ? "sun" : "moon")}</button>
       </header>
       <section class="content" id="view"></section>
     </main></div>`;
 
   const tick = () => {
-    const d = new Date();
+    const d = T.now();
     document.getElementById("clockT").textContent = d.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
     document.getElementById("clockD").textContent = d.toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short" });
   };
@@ -408,6 +414,7 @@ T.shell = ({ me, nav, views, tagline }) => {
 T.boot = async (expected, start) => {
   try {
     const me = await T.api("/api/me");
+    T.syncClock(me.server_time); T.timezone = me.timezone;
     if (expected === "employee" ? me.user.role !== "employee" : me.user.role === "employee") { location.href = T.loginUrl(expected === "employee" ? "employee" : "admin"); return; }
     start(me);
   } catch (e) { location.href = T.loginUrl(expected === "employee" ? "employee" : "admin"); }

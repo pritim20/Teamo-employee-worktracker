@@ -10,7 +10,7 @@ const {
   generatePasswordHash, checkPasswordHash, writeSession, attachSession,
   publicUser, userPerms, requireLogin, requireStaff, requireEmployee, needsPerm, COOKIE_NAME,
 } = require("./auth");
-const { today, nowTime, nowTs, addDays, setTimezone, refreshTimezone, setting, audit, meetingState, inMeetingIds, markInMeeting } = require("./util");
+const { today, nowTime, nowTs, addDays, setTimezone, getTimezone, refreshTimezone, setting, audit, meetingState, inMeetingIds, markInMeeting } = require("./util");
 const { ALL_PERMS, EMPLOYEE_PERMS, LOCKED, MAIL_KEYS, STATUSES } = require("./constants");
 const { mailConfig, sendMail, mailHtml, mailRegistrationReceived, mailCredentials, mailRejected } = require("./mail");
 const { broadcast } = require("./realtime");
@@ -76,7 +76,7 @@ app.post("/api/logout", requireLogin(), async (req, res) => {
 });
 
 app.get("/api/me", requireLogin(), async (req, res) => {
-  res.json({ user: publicUser(req.user), perms: await userPerms(req.user), company: await setting("company_name", "Teamo") });
+  res.json({ user: publicUser(req.user), perms: await userPerms(req.user), company: await setting("company_name", "Teamo"), server_time: nowTs(), timezone: getTimezone() });
 });
 
 // Rate limit is per warm function instance only (no shared store yet) — good enough

@@ -6,7 +6,7 @@ const V = {};
 const toMin = (t) => { const [h, m] = t.split(":").map(Number); return h * 60 + m; };
 const elapsed = (a, now) => {
   if (!a || !a.check_in) return { h: 0, label: "0h 0m" };
-  const d = new Date(), end = a.check_out ? toMin(a.check_out) : now ? toMin(now) : d.getHours() * 60 + d.getMinutes();
+  const d = T.now(), end = a.check_out ? toMin(a.check_out) : now ? toMin(now) : d.getHours() * 60 + d.getMinutes();
   const mins = Math.max(0, end - toMin(a.check_in));
   return { h: mins / 60, label: `${Math.floor(mins / 60)}h ${mins % 60}m` };
 };
@@ -102,7 +102,7 @@ const meetingRow = (m) => `<div class="li"><div class="time-chip">${T.fmtTime(m.
 /* ---------------- Dashboard ---------------- */
 V.dashboard = async (el) => {
   const [d, team] = await Promise.all([T.api("/api/me/dashboard"), T.api("/api/me/team").catch(() => [])]);
-  const hour = new Date().getHours();
+  const hour = T.now().getHours();
   const greet = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
   const open = d.tasks.filter((t) => t.status !== "Approved").length;
   const done = d.tasks.filter((t) => t.status === "Approved").length;
@@ -119,7 +119,7 @@ V.dashboard = async (el) => {
     </div>
 
     <div class="grid mt">
-      <div class="card"><div class="card-h"><h3>Today's attendance</h3><span class="hint">${new Date().toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long" })}</span></div>${punchCard(d.attendance, d.work_start, d.work_end, d.now)}</div>
+      <div class="card"><div class="card-h"><h3>Today's attendance</h3><span class="hint">${T.now().toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long" })}</span></div>${punchCard(d.attendance, d.work_start, d.work_end, d.now)}</div>
     </div>
 
     <div class="grid g-2 mt">

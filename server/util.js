@@ -9,6 +9,8 @@ const pad = (n) => String(n).padStart(2, "0");
 let TZ = process.env.TEAMO_TIMEZONE || "Asia/Kolkata";
 let tzCheckedAt = 0;
 
+const getTimezone = () => TZ;
+
 function setTimezone(tz) {
   try { new Intl.DateTimeFormat("en-GB", { timeZone: tz }); TZ = tz; return true; } catch (e) { return false; }
 }
@@ -88,4 +90,4 @@ async function inMeetingIds() {
   return new Set([...scheduled.map((r) => r.user_id), ...live.map((r) => r.id)]);
 }
 
-module.exports = { today, nowTime, nowTs, addDays, setTimezone, refreshTimezone, setting, audit, meetingState, inMeetingIds, markInMeeting };
+module.exports = { today, nowTime, nowTs, addDays, setTimezone, getTimezone, refreshTimezone, setting, audit, meetingState, inMeetingIds, markInMeeting };

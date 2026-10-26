@@ -12,7 +12,7 @@ const V = {};
 /* ---------------- Dashboard ---------------- */
 V.dashboard = async (el) => {
   const d = await T.api("/api/admin/dashboard");
-  const hour = new Date().getHours();
+  const hour = T.now().getHours();
   const greet = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
   const rate = d.total ? Math.round((d.present / d.total) * 100) : 0;
   el.innerHTML = `<div>
