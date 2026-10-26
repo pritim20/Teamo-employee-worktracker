@@ -1,6 +1,9 @@
 /* Teamo shared helpers: API, UI components, charts, shell */
 const T = {};
 
+// Each panel has its own sign-in page: admins/managers use /admin-login, employees use /.
+T.loginUrl = (role) => ((role || (location.pathname.startsWith("/admin") ? "admin" : "employee")) === "admin" ? "/admin-login" : "/");
+
 T.api = async (url, opts = {}) => {
   const res = await fetch(url, {
     method: opts.method || "GET",
@@ -8,7 +11,7 @@ T.api = async (url, opts = {}) => {
     body: opts.body instanceof FormData ? opts.body : opts.body ? JSON.stringify(opts.body) : undefined,
     credentials: "same-origin",
   });
-  if (res.status === 401) { location.href = "/"; throw new Error("Session expired"); }
+  if (res.status === 401) { location.href = T.loginUrl(); throw new Error("Session expired"); }
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || "Something went wrong");
   return data;
@@ -345,7 +348,7 @@ T.shell = ({ me, nav, views, tagline }) => {
   mark.onclick = () => setCollapsed(true);
   mark.ondblclick = () => setCollapsed(false);
   document.getElementById("themeBtn").onclick = T.toggleTheme;
-  document.getElementById("logoutBtn").onclick = async () => { await T.api("/api/logout", { method: "POST" }); location.href = "/"; };
+  document.getElementById("logoutBtn").onclick = async () => { await T.api("/api/logout", { method: "POST" }); location.href = T.loginUrl(); };
   root.querySelectorAll(".nav a[data-view]").forEach((a) => (a.onclick = () => { location.hash = a.dataset.view; closeNav(); }));
 
   // live updates: a Supabase Realtime broadcast fires on every write anywhere in the
@@ -405,7 +408,7 @@ T.shell = ({ me, nav, views, tagline }) => {
 T.boot = async (expected, start) => {
   try {
     const me = await T.api("/api/me");
-    if (expected === "employee" ? me.user.role !== "employee" : me.user.role === "employee") { location.href = "/"; return; }
+    if (expected === "employee" ? me.user.role !== "employee" : me.user.role === "employee") { location.href = T.loginUrl(expected === "employee" ? "employee" : "admin"); return; }
     start(me);
-  } catch (e) { location.href = "/"; }
+  } catch (e) { location.href = T.loginUrl(expected === "employee" ? "employee" : "admin"); }
 };

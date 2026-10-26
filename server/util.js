@@ -3,19 +3,46 @@ const { row, rows, execute } = require("./db");
 
 const pad = (n) => String(n).padStart(2, "0");
 
+// All "now" values are in the company's timezone (Settings > timezone, default Asia/Kolkata), not the
+// server's. Netlify/serverless functions run in UTC, which made check-in times come out 5h30 behind
+// what employees see on their own clocks.
+let TZ = process.env.TEAMO_TIMEZONE || "Asia/Kolkata";
+let tzCheckedAt = 0;
+
+function setTimezone(tz) {
+  try { new Intl.DateTimeFormat("en-GB", { timeZone: tz }); TZ = tz; return true; } catch (e) { return false; }
+}
+
+// Re-read the timezone setting at most once a minute so a change in Settings reaches every server instance.
+async function refreshTimezone() {
+  if (Date.now() - tzCheckedAt < 60000) return;
+  tzCheckedAt = Date.now();
+  try {
+    const r = await row("SELECT value FROM settings WHERE key='timezone'");
+    if (r && r.value) setTimezone(r.value);
+  } catch (e) { /* keep the current timezone */ }
+}
+
+function parts(d = new Date()) {
+  const f = new Intl.DateTimeFormat("en-CA", { timeZone: TZ, hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  const o = {};
+  for (const p of f.formatToParts(d)) o[p.type] = p.value;
+  return o;
+}
+
 function today() {
-  const d = new Date();
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  const p = parts();
+  return `${p.year}-${p.month}-${p.day}`;
 }
 
 function nowTime() {
-  const d = new Date();
-  return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  const p = parts();
+  return `${p.hour}:${p.minute}`;
 }
 
 function nowTs() {
-  const d = new Date();
-  return `${today()} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  const p = parts();
+  return `${p.year}-${p.month}-${p.day} ${p.hour}:${p.minute}:${p.second}`;
 }
 
 function addDays(iso, n) {
@@ -61,4 +88,4 @@ async function inMeetingIds() {
   return new Set([...scheduled.map((r) => r.user_id), ...live.map((r) => r.id)]);
 }
 
-module.exports = { today, nowTime, nowTs, addDays, setting, audit, meetingState, inMeetingIds, markInMeeting };
+module.exports = { today, nowTime, nowTs, addDays, setTimezone, refreshTimezone, setting, audit, meetingState, inMeetingIds, markInMeeting };

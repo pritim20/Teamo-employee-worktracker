@@ -10,7 +10,7 @@ const {
   generatePasswordHash, checkPasswordHash, writeSession, attachSession,
   publicUser, userPerms, requireLogin, requireStaff, requireEmployee, needsPerm, COOKIE_NAME,
 } = require("./auth");
-const { today, nowTime, nowTs, addDays, setting, audit, meetingState, inMeetingIds, markInMeeting } = require("./util");
+const { today, nowTime, nowTs, addDays, setTimezone, refreshTimezone, setting, audit, meetingState, inMeetingIds, markInMeeting } = require("./util");
 const { ALL_PERMS, EMPLOYEE_PERMS, LOCKED, MAIL_KEYS, STATUSES } = require("./constants");
 const { mailConfig, sendMail, mailHtml, mailRegistrationReceived, mailCredentials, mailRejected } = require("./mail");
 const { broadcast } = require("./realtime");
@@ -33,6 +33,7 @@ for (const method of ["get", "post", "put", "delete"]) {
     ));
 }
 
+app.use(async (req, res, next) => { await refreshTimezone(); next(); });
 app.use(express.json());
 app.use(cookieParser());
 app.use(attachSession);
@@ -768,6 +769,7 @@ app.put("/api/settings", requireStaff("settings.manage"), async (req, res) => {
   const allowed = ["company_name", "work_start", "work_end", "late_grace_minutes", "timezone", "week_start", ...MAIL_KEYS];
   if ("mail_port" in b && String(b.mail_port).trim() && !/^\d+$/.test(String(b.mail_port).trim())) return res.status(400).json({ error: "Mail port must be a number" });
   if (b.mail_password === "") delete b.mail_password; // blank means "keep the saved password"
+  if ("timezone" in b && !setTimezone(String(b.timezone).trim())) return res.status(400).json({ error: "Unknown timezone. Use a name like Asia/Kolkata or Europe/London." });
   for (const k of allowed) {
     if (k in b) await execute("INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", [k, String(b[k])]);
   }
@@ -898,7 +900,7 @@ app.get("/api/me/dashboard", requireEmployee(), async (req, res) => {
   const weekHours = Math.round(week.reduce((s, a) => s + hoursBetween(a.check_in, a.check_out || (a.date === d ? nowTime() : null)), 0) * 10) / 10;
   res.json({
     user: publicUser(u), attendance, tasks, meetings, status, statuses: STATUSES,
-    task_counts: taskCounts, week_hours: weekHours, work_start: workStart, work_end: workEnd,
+    task_counts: taskCounts, week_hours: weekHours, work_start: workStart, work_end: workEnd, now: nowTime(),
   });
 });
 
@@ -983,7 +985,7 @@ app.get("/api/me/attendance", requireEmployee(), async (req, res) => {
   const u = req.user;
   const recs = await rows("SELECT * FROM attendance WHERE user_id=? ORDER BY date DESC LIMIT 60", [u.id]);
   for (const r of recs) r.hours = hoursBetween(r.check_in, r.check_out);
-  res.json({ today: await todayAtt(u.id), records: recs });
+  res.json({ today: await todayAtt(u.id), records: recs, now: nowTime() });
 });
 
 app.get("/api/me/tasks", requireEmployee(), async (req, res) => {

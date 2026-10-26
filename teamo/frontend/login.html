@@ -7,10 +7,6 @@
   </div>
   <div class="login-form-side">
     <div class="login-box">
-      <div class="portal-switch" id="portal">
-        <button type="button" data-p="admin" class="on" id="pa"></button>
-        <button type="button" data-p="employee" id="pe"></button>
-      </div>
       <h2 id="ttl">Welcome back, Admin</h2>
       <div class="sub" id="sub">Sign in to manage your team</div>
       <form id="lf">
@@ -29,30 +25,29 @@
         <button class="btn primary lg" style="justify-content:center" id="rgo">Create account</button>
       </form>
       <div id="rdone" style="display:none" class="demo"><b>Registration received</b><br>A manager will review your request. Once approved, your company email id and password will be sent to your personal email, and then you can sign in.</div>
-      <div class="sub" style="margin:18px 0 0;text-align:center"><span id="swlead">New here?</span> <a href="#" id="swlink" style="color:var(--brand);font-weight:600">Create an account</a></div>
+      <div class="sub" id="swrow" style="margin:18px 0 0;text-align:center"><span id="swlead">New here?</span> <a href="#" id="swlink" style="color:var(--brand);font-weight:600">Create an account</a></div>
     </div>
   </div>
+  <div id="other" style="position:fixed;left:0;right:0;bottom:22px;text-align:center;font-size:13.5px;color:rgba(255,255,255,.85)"></div>
 </div>
 <script src="/static/js/common.js"></script>
 <script>
 document.getElementById("lg1").innerHTML = T.logo;
-document.getElementById("pa").innerHTML = T.icon("shield")+"Admin / Manager";
-document.getElementById("pe").innerHTML = T.icon("user")+"Employee";
-// A link can lock the page to one portal (e.g. the "sign in" link in the approval email
-// uses ?portal=employee) so the admin/manager option never shows there at all.
-const lockedPortal = new URLSearchParams(location.search).get("portal");
-const portalLocked = lockedPortal === "admin" || lockedPortal === "employee";
-let portal = portalLocked ? lockedPortal : "admin";
-if (portalLocked) document.getElementById("portal").style.display = "none";
-const setPortal = (p) => {
-  portal = p;
-  document.querySelectorAll("#portal button").forEach(b => b.classList.toggle("on", b.dataset.p === p));
-  document.getElementById("ttl").textContent = p === "admin" ? "Welcome back, Admin" : "Hello there 👋";
-  document.getElementById("sub").textContent = p === "admin" ? "Sign in to manage your team" : "Sign in with your work email to start your day";
-  document.getElementById("err").style.display = "none";
-};
-setPortal(portal);
-document.querySelectorAll("#portal button").forEach(b => b.onclick = () => setPortal(b.dataset.p));
+// Two separate sign-in pages: "/" is the employee login, "/admin-login" is the admin/manager login.
+// (?portal=admin|employee still works for old links.)
+const qp = new URLSearchParams(location.search).get("portal");
+const portal = location.pathname.startsWith("/admin") ? "admin" : qp === "admin" ? "admin" : "employee";
+const isAdmin = portal === "admin";
+const SIGNIN_TITLE = isAdmin ? "Admin sign in" : "Hello there 👋";
+const SIGNIN_SUB = isAdmin ? "Admins and managers sign in here to manage the team" : "Sign in with your work email to start your day";
+document.title = isAdmin ? "Teamo · Admin sign in" : "Teamo · Employee sign in";
+document.getElementById("ttl").textContent = SIGNIN_TITLE;
+document.getElementById("sub").textContent = SIGNIN_SUB;
+// admin accounts aren't self-registered, so only the employee page offers "Create an account"
+if (isAdmin) document.getElementById("swrow").style.display = "none";
+document.getElementById("other").innerHTML = isAdmin
+  ? 'Are you an employee? <a href="/" style="color:#fff;font-weight:700;text-decoration:underline">Employee sign in</a>'
+  : 'Are you an admin or manager? <a href="/admin-login" style="color:#fff;font-weight:700;text-decoration:underline">Admin sign in</a>';
 document.getElementById("lf").onsubmit = async (e) => {
   e.preventDefault();
   const err = document.getElementById("err"), btn = document.getElementById("go");
@@ -72,9 +67,8 @@ const setMode = (r) => {
   document.getElementById("lf").style.display = r ? "none" : "";
   document.getElementById("rf").style.display = r ? "" : "none";
   document.getElementById("rdone").style.display = "none";
-  document.getElementById("portal").style.display = (r || portalLocked) ? "none" : "";
-  document.getElementById("ttl").textContent = r ? "Create your account" : (portal === "admin" ? "Welcome back, Admin" : "Hello there 👋");
-  document.getElementById("sub").textContent = r ? "Register with your personal email. After approval, your manager emails you your company email id and password." : (portal === "admin" ? "Sign in to manage your team" : "Sign in with your work email to start your day");
+  document.getElementById("ttl").textContent = r ? "Create your account" : SIGNIN_TITLE;
+  document.getElementById("sub").textContent = r ? "Register with your personal email. After approval, your manager emails you your company email id and password." : SIGNIN_SUB;
   document.getElementById("swlead").textContent = r ? "Already registered?" : "New here?";
   document.getElementById("swlink").textContent = r ? "Sign in" : "Create an account";
 };

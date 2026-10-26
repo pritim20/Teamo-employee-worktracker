@@ -22,6 +22,12 @@
   status = 200
 
 [[redirects]]
+  # separate sign-in page for admins and managers; "/" is the employee sign-in
+  from = "/admin-login"
+  to = "/login.html"
+  status = 200
+
+[[redirects]]
   from = "/admin"
   to = "/admin.html"
   status = 200

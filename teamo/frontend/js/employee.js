@@ -2,18 +2,17 @@
 let ME;
 const V = {};
 
-const elapsed = (a) => {
+// `now` is the company-time clock sent by the server, so hours stay right even if this device's clock/timezone differs.
+const toMin = (t) => { const [h, m] = t.split(":").map(Number); return h * 60 + m; };
+const elapsed = (a, now) => {
   if (!a || !a.check_in) return { h: 0, label: "0h 0m" };
-  const [h, m] = a.check_in.split(":").map(Number);
-  let end = new Date();
-  if (a.check_out) { const [h2, m2] = a.check_out.split(":").map(Number); end = new Date(); end.setHours(h2, m2, 0); }
-  const start = new Date(); start.setHours(h, m, 0);
-  const mins = Math.max(0, Math.round((end - start) / 60000));
+  const d = new Date(), end = a.check_out ? toMin(a.check_out) : now ? toMin(now) : d.getHours() * 60 + d.getMinutes();
+  const mins = Math.max(0, end - toMin(a.check_in));
   return { h: mins / 60, label: `${Math.floor(mins / 60)}h ${mins % 60}m` };
 };
 
-const punchCard = (a, workStart, workEnd) => {
-  const e = elapsed(a);
+const punchCard = (a, workStart, workEnd, now) => {
+  const e = elapsed(a, now);
   const [sh, sm] = workStart.split(":").map(Number), [eh, em] = workEnd.split(":").map(Number);
   const shift = ((eh * 60 + em) - (sh * 60 + sm)) / 60 || 9;
   const pct = Math.min(100, Math.round((e.h / shift) * 100));
@@ -120,7 +119,7 @@ V.dashboard = async (el) => {
     </div>
 
     <div class="grid mt">
-      <div class="card"><div class="card-h"><h3>Today's attendance</h3><span class="hint">${new Date().toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long" })}</span></div>${punchCard(d.attendance, d.work_start, d.work_end)}</div>
+      <div class="card"><div class="card-h"><h3>Today's attendance</h3><span class="hint">${new Date().toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long" })}</span></div>${punchCard(d.attendance, d.work_start, d.work_end, d.now)}</div>
     </div>
 
     <div class="grid g-2 mt">
@@ -137,9 +136,9 @@ V.dashboard = async (el) => {
 
 /* ---------------- Attendance ---------------- */
 V.attendance = async (el) => {
-  const { today: a } = await T.api("/api/me/attendance");
+  const { today: a, now } = await T.api("/api/me/attendance");
   const checkedIn = !!a?.check_in, out = !!a?.check_out;
-  const worked = Math.max(0, elapsed(a).h - (a?.break_minutes || 0) / 60);
+  const worked = Math.max(0, elapsed(a, now).h - (a?.break_minutes || 0) / 60);
   const hrs = `${Math.floor(worked)}h ${Math.round((worked % 1) * 60)}m`;
   const brk = a?.break_minutes ? `${a.break_minutes} min${a.on_break ? " (on break)" : ""}` : (a?.on_break ? "On break" : "—");
   const btn = (act, cls, icon, label) => `<button class="btn ${cls} lg" data-act="${act}">${T.icon(icon)}${label}</button>`;
