@@ -55,8 +55,8 @@ app.post("/api/login", async (req, res) => {
   if (u.approval === "pending") return res.status(403).json({ error: "Your registration is still waiting for a manager's approval. We'll email you once it's reviewed." });
   if (u.approval === "rejected") return res.status(403).json({ error: "Your registration wasn't approved. Contact your manager if you think this is a mistake." });
   if (!u.active) return res.status(403).json({ error: "Your account is deactivated. Contact your admin." });
-  if (portal === "admin" && u.role === "employee") return res.status(403).json({ error: "This account is an employee account. Use the Employee login." });
-  if (portal === "employee" && u.role !== "employee") return res.status(403).json({ error: "This is an admin/manager account. Use the Admin login." });
+  if (portal === "admin" && u.role === "employee") return res.status(403).json({ error: "Invalid email or password" });
+  if (portal === "employee" && u.role !== "employee") return res.status(403).json({ error: "Invalid email or password" });
 
   const key = u.role === "employee" ? "uid_employee" : "uid_admin";
   writeSession(res, { ...req.sessionData, [key]: u.id });
@@ -290,9 +290,8 @@ app.post("/api/registrations/:uid/decision", requireStaff("employees.manage"), a
     await audit(req, "REGISTRATION_APPROVE", `Approved ${u.name} as ${login}`);
     // The frontend already has a graceful fallback for emailed:false — it shows the
     // credentials for the admin to share manually if sending fails or mail isn't set up.
-    // ?portal=employee locks login.html into the employee-only view (no admin/manager
-    // toggle shown at all) — see teamo/frontend/login.html.
-    const baseUrl = `${req.protocol}://${req.get("host")}/?portal=employee`;
+    // employees sign in at their own page, /employee-login (see teamo/frontend/employee-login.html).
+    const baseUrl = `${req.protocol}://${req.get("host")}/employee-login`;
     const err = await mailCredentials(u, login, pw, baseUrl);
     return res.json({ ok: true, emailed: !err, error: err || undefined, personal_email: u.personal_email });
   }
@@ -774,18 +773,6 @@ app.put("/api/settings", requireStaff("settings.manage"), async (req, res) => {
     if (k in b) await execute("INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", [k, String(b[k])]);
   }
   await audit(req, "SETTINGS_UPDATE", allowed.filter((k) => k in b).map((k) => `${k}=${k === "mail_password" ? "***" : b[k]}`).join(", "));
-  res.json({ ok: true });
-});
-
-app.post("/api/settings/test-email", requireStaff("settings.manage"), async (req, res) => {
-  const to = ((req.body || {}).to || "").trim();
-  if (!to.includes("@")) return res.status(400).json({ error: "Enter an email address to send the test to" });
-  const co = await setting("company_name", "Teamo");
-  const err = await sendMail(to, `Test email from ${co}`,
-    `If you can read this, email from ${co} is set up correctly.`,
-    await mailHtml("Email is working", [`This is a test message from ${co}.`, "If you can read this, your email settings are correct."]),
-    true);
-  if (err) return res.status(400).json({ error: err });
   res.json({ ok: true });
 });
 

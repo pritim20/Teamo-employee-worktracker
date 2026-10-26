@@ -1,8 +1,8 @@
 /* Teamo shared helpers: API, UI components, charts, shell */
 const T = {};
 
-// Each panel has its own sign-in page: admins/managers use /admin-login, employees use /.
-T.loginUrl = (role) => ((role || (location.pathname.startsWith("/admin") ? "admin" : "employee")) === "admin" ? "/admin-login" : "/");
+// Each panel has its own sign-in page: admins/managers use /admin-login, employees use /employee-login.
+T.loginUrl = (role) => ((role || (location.pathname.startsWith("/admin") ? "admin" : "employee")) === "admin" ? "/admin-login" : "/employee-login");
 
 T.api = async (url, opts = {}) => {
   const res = await fetch(url, {

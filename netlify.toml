@@ -17,14 +17,24 @@
   status = 200
 
 [[redirects]]
+  # "/" and the old shared login page go to the employee login; admins use /admin-login
   from = "/"
-  to = "/login.html"
+  to = "/employee-login"
+  status = 302
+
+[[redirects]]
+  from = "/login.html"
+  to = "/employee-login"
+  status = 302
+
+[[redirects]]
+  from = "/employee-login"
+  to = "/employee-login.html"
   status = 200
 
 [[redirects]]
-  # separate sign-in page for admins and managers; "/" is the employee sign-in
   from = "/admin-login"
-  to = "/login.html"
+  to = "/admin-login.html"
   status = 200
 
 [[redirects]]

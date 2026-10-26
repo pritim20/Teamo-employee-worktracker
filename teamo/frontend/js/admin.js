@@ -428,7 +428,7 @@ const renderEmailSettings = async (el) => {
       <input class="input" name="mail_password" id="mpw" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" data-lpignore="true" data-1p-ignore="true" data-form-type="other" style="-webkit-text-security:disc;text-security:disc" placeholder="${s.mail_password_set ? "Saved. Leave blank to keep it" : "Password of the mail account"}" readonly onfocus="this.removeAttribute('readonly')">
       <button type="button" class="btn" id="mshow" title="Show or hide the password">${T.icon("search")}</button></div></div>
     ${T.field("From email", "mail_from", s.mail_from || "", "email", 'placeholder="hr@yourcompany.com" autocomplete="off"')}${T.field("From name", "mail_from_name", s.mail_from_name || "", "text", 'placeholder="e.g. Teamo HR" autocomplete="off"')}</div>
-    <div class="row mt" style="gap:10px;flex-wrap:wrap"><button class="btn primary">${T.icon("tick")}Save email settings</button><button type="button" class="btn" id="mtest">${T.icon("activity")}Send test email</button></div>
+    <div class="row mt" style="gap:10px;flex-wrap:wrap"><button class="btn primary">${T.icon("tick")}Save email settings</button></div>
 </form>`;
   el.innerHTML = `<div style="max-width:980px">${mailCard}</div>`;
   const mf = el.querySelector("#mf");
@@ -436,12 +436,6 @@ const renderEmailSettings = async (el) => {
     const mailBody = () => { const f = Object.fromEntries(new FormData(mf)); f.mail_enabled = f.mail_enabled ? "1" : "0"; return f; };
     mf.onsubmit = async (e) => { e.preventDefault(); try { await T.api("/api/settings", { method: "PUT", body: mailBody() }); T.toast("Email settings saved"); T.reload(); } catch (er) { T.toast(er.message, "err"); } };
     el.querySelector("#mshow").onclick = () => { const i = el.querySelector("#mpw"), hide = i.style.webkitTextSecurity !== "none"; i.style.webkitTextSecurity = i.style.textSecurity = hide ? "none" : "disc"; };
-    el.querySelector("#mtest").onclick = async () => {
-      const f = await T.modal({ title: "Send test email", submit: "Send", body: `<div class="form-grid">${T.field("Send the test to", "to", ME.user.email, "email", "full")}</div><p class="small muted" style="margin-top:10px">Your current email settings are saved first, then the message is sent.</p>` });
-      if (!f) return;
-      try { await T.api("/api/settings", { method: "PUT", body: mailBody() }); await T.api("/api/settings/test-email", { method: "POST", body: { to: f.to } }); T.toast("Test email sent. Check the inbox."); T.reload(); }
-      catch (er) { T.toast(er.message, "err"); T.reload(); }
-    };
   }
 };
 

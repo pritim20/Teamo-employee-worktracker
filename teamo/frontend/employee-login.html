@@ -1,4 +1,4 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet"><link rel="stylesheet" href="/static/css/style.css"><link rel="icon" type="image/png" href="/static/img/favicon.png"><title>Teamo · Sign in</title></head><body>
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet"><link rel="stylesheet" href="/static/css/style.css"><link rel="icon" type="image/png" href="/static/img/favicon.png"><title>Teamo · Employee login</title></head><body>
 <div class="login-page">
   <div class="login-art">
     <div class="blob" style="width:380px;height:380px;background:#6366f1;top:-120px;right:-80px"></div>
@@ -7,11 +7,11 @@
   </div>
   <div class="login-form-side">
     <div class="login-box">
-      <h2 id="ttl">Welcome back, Admin</h2>
-      <div class="sub" id="sub">Sign in to manage your team</div>
+      <h2 id="ttl">Employee login</h2>
+      <div class="sub" id="sub">Sign in with your company email to start your day</div>
       <form id="lf">
         <div class="err-box" id="err"></div>
-        <div class="field"><label>Email address</label><input class="input" name="email" type="email" placeholder="you@company.com" required autocomplete="username"></div>
+        <div class="field"><label>Company email id</label><input class="input" name="email" type="email" placeholder="you@company.com" required autocomplete="username"></div>
         <div class="field"><label>Password</label><input class="input" name="password" type="password" placeholder="••••••••" required autocomplete="current-password"></div>
         <button class="btn primary lg" style="justify-content:center" id="go">Sign in</button>
       </form>
@@ -28,26 +28,11 @@
       <div class="sub" id="swrow" style="margin:18px 0 0;text-align:center"><span id="swlead">New here?</span> <a href="#" id="swlink" style="color:var(--brand);font-weight:600">Create an account</a></div>
     </div>
   </div>
-  <div id="other" style="position:fixed;left:0;right:0;bottom:22px;text-align:center;font-size:13.5px;color:rgba(255,255,255,.85)"></div>
 </div>
 <script src="/static/js/common.js"></script>
 <script>
 document.getElementById("lg1").innerHTML = T.logo;
-// Two separate sign-in pages: "/" is the employee login, "/admin-login" is the admin/manager login.
-// (?portal=admin|employee still works for old links.)
-const qp = new URLSearchParams(location.search).get("portal");
-const portal = location.pathname.startsWith("/admin") ? "admin" : qp === "admin" ? "admin" : "employee";
-const isAdmin = portal === "admin";
-const SIGNIN_TITLE = isAdmin ? "Admin sign in" : "Hello there 👋";
-const SIGNIN_SUB = isAdmin ? "Admins and managers sign in here to manage the team" : "Sign in with your work email to start your day";
-document.title = isAdmin ? "Teamo · Admin sign in" : "Teamo · Employee sign in";
-document.getElementById("ttl").textContent = SIGNIN_TITLE;
-document.getElementById("sub").textContent = SIGNIN_SUB;
-// admin accounts aren't self-registered, so only the employee page offers "Create an account"
-if (isAdmin) document.getElementById("swrow").style.display = "none";
-document.getElementById("other").innerHTML = isAdmin
-  ? 'Are you an employee? <a href="/" style="color:#fff;font-weight:700;text-decoration:underline">Employee sign in</a>'
-  : 'Are you an admin or manager? <a href="/admin-login" style="color:#fff;font-weight:700;text-decoration:underline">Admin sign in</a>';
+const portal = "employee";
 document.getElementById("lf").onsubmit = async (e) => {
   e.preventDefault();
   const err = document.getElementById("err"), btn = document.getElementById("go");
@@ -61,14 +46,15 @@ document.getElementById("lf").onsubmit = async (e) => {
   } catch (x) { err.textContent = x.message; err.style.display = "block"; btn.disabled = false; btn.textContent = "Sign in"; }
 };
 
+// Employees register with their personal email; a manager approves and emails their company login.
 let registering = false;
 const setMode = (r) => {
   registering = r;
   document.getElementById("lf").style.display = r ? "none" : "";
   document.getElementById("rf").style.display = r ? "" : "none";
   document.getElementById("rdone").style.display = "none";
-  document.getElementById("ttl").textContent = r ? "Create your account" : SIGNIN_TITLE;
-  document.getElementById("sub").textContent = r ? "Register with your personal email. After approval, your manager emails you your company email id and password." : SIGNIN_SUB;
+  document.getElementById("ttl").textContent = r ? "Create your account" : "Employee login";
+  document.getElementById("sub").textContent = r ? "Register with your personal email. After approval, your manager emails you your company email id and password." : "Sign in with your company email to start your day";
   document.getElementById("swlead").textContent = r ? "Already registered?" : "New here?";
   document.getElementById("swlink").textContent = r ? "Sign in" : "Create an account";
 };

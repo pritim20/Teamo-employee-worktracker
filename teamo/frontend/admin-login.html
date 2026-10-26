@@ -1,0 +1,37 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet"><link rel="stylesheet" href="/static/css/style.css"><link rel="icon" type="image/png" href="/static/img/favicon.png"><title>Teamo · Admin login</title></head><body>
+<div class="login-page">
+  <div class="login-art">
+    <div class="blob" style="width:380px;height:380px;background:#6366f1;top:-120px;right:-80px"></div>
+    <div class="blob" style="width:300px;height:300px;background:#ec4899;bottom:-100px;left:-60px"></div>
+    <div class="brand" style="padding:0;position:relative"><div class="brand-mark" id="lg1"></div><div><div class="brand-name">Teamo</div></div></div>
+  </div>
+  <div class="login-form-side">
+    <div class="login-box">
+      <h2 id="ttl">Admin login</h2>
+      <div class="sub" id="sub">Admins and managers sign in here</div>
+      <form id="lf">
+        <div class="err-box" id="err"></div>
+        <div class="field"><label>Email address</label><input class="input" name="email" type="email" placeholder="you@company.com" required autocomplete="username"></div>
+        <div class="field"><label>Password</label><input class="input" name="password" type="password" placeholder="••••••••" required autocomplete="current-password"></div>
+        <button class="btn primary lg" style="justify-content:center" id="go">Sign in</button>
+      </form>
+    </div>
+  </div>
+</div>
+<script src="/static/js/common.js"></script>
+<script>
+document.getElementById("lg1").innerHTML = T.logo;
+const portal = "admin";
+document.getElementById("lf").onsubmit = async (e) => {
+  e.preventDefault();
+  const err = document.getElementById("err"), btn = document.getElementById("go");
+  btn.disabled = true; btn.textContent = "Signing in…"; err.style.display = "none";
+  try {
+    const r = await fetch("/api/login", {method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({email: e.target.email.value, password: e.target.password.value, portal})});
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || "Login failed");
+    location.href = d.redirect;
+  } catch (x) { err.textContent = x.message; err.style.display = "block"; btn.disabled = false; btn.textContent = "Sign in"; }
+};
+</script></body></html>
