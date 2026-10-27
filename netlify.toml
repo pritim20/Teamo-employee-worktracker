@@ -17,25 +17,21 @@
   status = 200
 
 [[redirects]]
-  # "/" and the old shared login page go to the employee login; admins use /admin-login
+  # one sign-in page for everyone; the account's role decides which dashboard opens
   from = "/"
-  to = "/employee-login"
-  status = 302
+  to = "/login.html"
+  status = 200
 
 [[redirects]]
-  from = "/login.html"
-  to = "/employee-login"
+  # old separate login addresses
+  from = "/admin-login"
+  to = "/"
   status = 302
 
 [[redirects]]
   from = "/employee-login"
-  to = "/employee-login.html"
-  status = 200
-
-[[redirects]]
-  from = "/admin-login"
-  to = "/admin-login.html"
-  status = 200
+  to = "/"
+  status = 302
 
 [[redirects]]
   from = "/admin"

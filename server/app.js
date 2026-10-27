@@ -43,26 +43,23 @@ app.use(attachSession);
 app.post("/api/login", async (req, res) => {
   const b = req.body || {};
   const email = (b.email || "").trim().toLowerCase();
-  const portal = b.portal || "employee";
   const u = await row("SELECT * FROM users WHERE lower(email)=?", [email]);
   if (!u || !checkPasswordHash(u.password, b.password || "")) {
     await execute(
       "INSERT INTO audit_log(user_id,user_name,action,details,ip,ts) VALUES(NULL,?,?,?,?,?)",
-      [email || "unknown", "LOGIN_FAILED", `Failed login on ${portal} portal`, req.ip, nowTs()]
+      [email || "unknown", "LOGIN_FAILED", "Failed login attempt", req.ip, nowTs()]
     );
     return res.status(401).json({ error: "Invalid email or password" });
   }
   if (u.approval === "pending") return res.status(403).json({ error: "Your registration is still waiting for a manager's approval. We'll email you once it's reviewed." });
   if (u.approval === "rejected") return res.status(403).json({ error: "Your registration wasn't approved. Contact your manager if you think this is a mistake." });
   if (!u.active) return res.status(403).json({ error: "Your account is deactivated. Contact your admin." });
-  if (portal === "admin" && u.role === "employee") return res.status(403).json({ error: "Invalid email or password" });
-  if (portal === "employee" && u.role !== "employee") return res.status(403).json({ error: "Invalid email or password" });
 
   const key = u.role === "employee" ? "uid_employee" : "uid_admin";
   writeSession(res, { ...req.sessionData, [key]: u.id });
   req.user = u;
   if (u.role !== "employee" || u.status === "Offline") await execute("UPDATE users SET status='Available' WHERE id=?", [u.id]);
-  await audit(req, "LOGIN", `Logged in to ${portal} portal`);
+  await audit(req, "LOGIN", `Logged in to the ${u.role === "employee" ? "employee" : "admin"} dashboard`);
   res.json({ ok: true, redirect: u.role === "employee" ? "/employee" : "/admin" });
 });
 
@@ -290,8 +287,8 @@ app.post("/api/registrations/:uid/decision", requireStaff("employees.manage"), a
     await audit(req, "REGISTRATION_APPROVE", `Approved ${u.name} as ${login}`);
     // The frontend already has a graceful fallback for emailed:false — it shows the
     // credentials for the admin to share manually if sending fails or mail isn't set up.
-    // employees sign in at their own page, /employee-login (see teamo/frontend/employee-login.html).
-    const baseUrl = `${req.protocol}://${req.get("host")}/employee-login`;
+    // one sign-in page for everyone; the account's role decides which dashboard opens
+    const baseUrl = `${req.protocol}://${req.get("host")}/`;
     const err = await mailCredentials(u, login, pw, baseUrl);
     return res.json({ ok: true, emailed: !err, error: err || undefined, personal_email: u.personal_email });
   }
