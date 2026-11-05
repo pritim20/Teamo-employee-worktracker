@@ -1235,7 +1235,8 @@ app.use((err, req, res, next) => {
 // leaking internals to the client.
 app.use((err, req, res, next) => {
   console.error("Unhandled error in", req.method, req.path, err);
-  res.status(500).json({ error: "Something went wrong on our end. Try again in a moment." });
+  // TEMP diagnostic: error code/message only (no secrets) so a failing deploy can be diagnosed from the UI.
+  res.status(500).json({ error: "Something went wrong on our end. Try again in a moment.", detail: String(err.code || err.message || err).slice(0, 200) });
 });
 
 app.use((req, res) => {
