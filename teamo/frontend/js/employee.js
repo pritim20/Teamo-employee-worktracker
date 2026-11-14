@@ -16,21 +16,19 @@ const punchCard = (a, workStart, workEnd, now) => {
   const [sh, sm] = workStart.split(":").map(Number), [eh, em] = workEnd.split(":").map(Number);
   const shift = ((eh * 60 + em) - (sh * 60 + sm)) / 60 || 9;
   const pct = Math.min(100, Math.round((e.h / shift) * 100));
-  const state = !a || !a.check_in ? (a && ["Absent", "Leave"].includes(a.status) ? a.status : "Not checked in") : a.check_out ? "Checked out" : "Working";
+  const state = !a || !a.check_in ? (a && ["Absent", "Leave"].includes(a.status) ? a.status : "Not marked") : a.check_out ? "Logged out" : "Working";
   return `<div class="punch"><div class="ring" style="--p:${pct}"><div><b>${e.label}</b><small>of ${shift}h shift</small></div></div>
     <div style="flex:1;min-width:200px"><div class="row" style="margin-bottom:14px">${T.badge(state === "Working" ? "Present" : state)}${a && a.status === "Late" ? T.badge("Late") : ""}</div>
-    <div class="punch-times"><div><small>Check-in</small><b>${T.fmtTime(a?.check_in)}</b></div><div><small>Check-out</small><b>${T.fmtTime(a?.check_out)}</b></div>
+    <div class="punch-times"><div><small>Login</small><b>${T.fmtTime(a?.check_in)}</b></div><div><small>Logout</small><b>${T.fmtTime(a?.check_out)}</b></div>
     <div><small>Shift</small><b>${T.fmtTime(workStart)} – ${T.fmtTime(workEnd)}</b></div></div>
-    <div class="row mt">${!a || !a.check_in
-      ? (a && ["Absent", "Leave"].includes(a.status) ? '<span class="muted">Marked by admin for today</span>' : `<button class="btn success lg" data-act="checkin">${T.icon("login")}Check in</button>`)
-      : !a.check_out ? `<button class="btn danger lg" data-act="checkout">${T.icon("logout")}Check out</button>` : '<span class="muted bold">✅ Day complete — great work!</span>'}</div></div></div>`;
+    <div class="row mt"><span class="muted">${a && ["Absent", "Leave"].includes(a.status) ? "Marked by admin for today" : "Attendance is marked automatically when you sign in and out"}</span></div></div></div>`;
 };
 
 const bindPunch = (el) => el.querySelectorAll("[data-act]").forEach((b) => (b.onclick = async () => {
   b.disabled = true;
   try {
     const r = await T.api(`/api/me/${b.dataset.act}`, { method: "POST" });
-    T.toast(b.dataset.act === "checkin" ? `Checked in at ${T.fmtTime(r.time)}${r.status === "Late" ? " (late)" : ""}` : b.dataset.act === "break/start" ? `Break started at ${T.fmtTime(r.time)}` : b.dataset.act === "break/end" ? `Break ended at ${T.fmtTime(r.time)}` : `Checked out at ${T.fmtTime(r.time)}`);
+    T.toast(b.dataset.act === "break/start" ? `Break started at ${T.fmtTime(r.time)}` : `Break ended at ${T.fmtTime(r.time)}`);
     T.reload();
   } catch (e) { T.toast(e.message, "err"); b.disabled = false; }
 }));
@@ -113,7 +111,7 @@ V.dashboard = async (el) => {
       ${next ? `<div style="background:rgba(255,255,255,.14);padding:12px 16px;border-radius:14px;position:relative"><div class="small" style="opacity:.8">${next.state === "In Progress" ? "Happening now" : "Up next"}</div><b>${T.esc(next.title)}</b><div class="small">${T.fmtTime(next.start_time)} · ${T.esc(next.location)}</div></div>` : ""}</div></div>
 
     <div class="grid g-3 mt">
-      ${T.stat("Today's attendance", d.attendance?.check_in ? T.fmtTime(d.attendance.check_in) : (d.attendance?.status || "—"), "check", "green", d.attendance ? T.badge(d.attendance.check_out ? "Checked out" : d.attendance.status) : "Not checked in yet")}
+      ${T.stat("Today's attendance", d.attendance?.check_in ? T.fmtTime(d.attendance.check_in) : (d.attendance?.status || "—"), "check", "green", d.attendance ? T.badge(d.attendance.check_out ? "Logged out" : d.attendance.status) : "Not marked yet")}
       ${T.stat("Today's tasks", `${done}/${d.tasks.length}`, "list", "indigo", `${open} remaining`)}
       ${T.stat("Meetings today", d.meetings.length, "video", "pink", next ? `Next: ${T.fmtTime(next.start_time)}` : "No more today")}
     </div>
@@ -143,11 +141,11 @@ V.attendance = async (el) => {
   const brk = a?.break_minutes ? `${a.break_minutes} min${a.on_break ? " (on break)" : ""}` : (a?.on_break ? "On break" : "—");
   const btn = (act, cls, icon, label) => `<button class="btn ${cls} lg" data-act="${act}">${T.icon(icon)}${label}</button>`;
   el.innerHTML = `<div class="card"><div class="card-h"><h3>Attendance</h3></div>
-    <div class="punch-times"><div><small>Check-in</small><b>${T.fmtTime(a?.check_in)}</b></div><div><small>Break</small><b>${brk}</b></div>
-    <div><small>Check-out</small><b>${T.fmtTime(a?.check_out)}</b></div><div><small>Hours</small><b>${checkedIn ? hrs : "—"}</b></div></div>
-    <div class="row mt">${!checkedIn ? btn("checkin", "success", "login", "Check in")
-      : out ? '<span class="muted bold">✅ Day complete — great work!</span>'
-      : (a.on_break ? btn("break/end", "primary", "tick", "End break") : btn("break/start", "ghost", "clock", "Start break")) + btn("checkout", "danger", "logout", "Check out")}</div></div>`;
+    <div class="punch-times"><div><small>Login time</small><b>${T.fmtTime(a?.check_in)}</b></div><div><small>Break</small><b>${brk}</b></div>
+    <div><small>Logout time</small><b>${T.fmtTime(a?.check_out)}</b></div><div><small>Hours</small><b>${checkedIn ? hrs : "—"}</b></div></div>
+    <div class="row mt">${!checkedIn ? '<span class="muted">Attendance is marked automatically when you sign in.</span>'
+      : out ? '<span class="muted bold">Logged out for today. Signing in again continues the day.</span>'
+      : a.on_break ? btn("break/end", "primary", "tick", "End break") : btn("break/start", "ghost", "clock", "Start break")}</div></div>`;
   bindPunch(el);
 };
 
@@ -196,7 +194,7 @@ V.reports = async (el, n = 29) => {
     <div class="grid g-4">${T.stat("Hours worked", s.hours, "clock", "indigo", `${s.avg_hours}h average per day`)}${T.stat("Attendance rate", s.attendance_rate + "%", "check", "green", `${s.present} days present, ${s.late} late`)}
     ${T.stat("Tasks approved", `${s.tasks_done}/${s.tasks_total}`, "zap", "cyan", `${s.completion_rate}% completion`)}${T.stat("Meetings", s.meetings, "video", "pink", `${s.absent} absent · ${s.leave} on leave`)}</div>
     <div class="card mt"><div class="card-h"><h3>Attendance history</h3><span class="hint">${r.records.length} records</span></div><div class="table-wrap"><table>
-    <thead><tr><th>Date</th><th>Day</th><th>Check-in</th><th>Check-out</th><th>Hours</th><th>Status</th></tr></thead><tbody>
+    <thead><tr><th>Date</th><th>Day</th><th>Login</th><th>Logout</th><th>Hours</th><th>Status</th></tr></thead><tbody>
     ${r.records.map((x) => `<tr><td class="bold">${T.fmtDate(x.date)}</td><td class="muted">${new Date(x.date + "T00:00").toLocaleDateString("en-IN", { weekday: "short" })}</td>
     <td>${T.fmtTime(x.check_in)}</td><td>${T.fmtTime(x.check_out)}</td><td>${x.hours ? x.hours + "h" : "—"}</td><td>${T.badge(x.status)}</td></tr>`).join("") || '<tr><td colspan="6" class="empty">No attendance records</td></tr>'}</tbody></table></div></div>
     <div class="card mt"><div class="card-h"><h3>Completed tasks</h3><span class="hint">${r.completed_tasks.length} approved</span></div><div class="table-wrap"><table>
@@ -206,6 +204,8 @@ V.reports = async (el, n = 29) => {
 };
 
 /* ---------------- Profile ---------------- */
+V.project = (el) => T.projectView(el, ME.user);
+
 V.profile = async (el) => {
   const me = (await T.api("/api/me")).user;
   el.innerHTML = `<div><div class="card hero"><div class="profile-head row"><div class="avatar lg" style="background:rgba(255,255,255,.2)">${T.esc(T.initials(me.name))}</div>
@@ -239,6 +239,7 @@ T.boot("employee", (me) => {
       { id: "meetings", label: "Meetings", icon: "video" },
       { id: "reports", label: "My Reports", icon: "chart" },
       { id: "profile", label: "My Profile", icon: "user", sub: "Personal details & security" },
+      { id: "project", label: "Project", icon: "folder", sub: "Share files with your team" },
     ],
   });
 });

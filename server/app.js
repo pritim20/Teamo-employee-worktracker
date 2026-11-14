@@ -14,7 +14,7 @@ const { today, nowTime, nowTs, addDays, setTimezone, getTimezone, refreshTimezon
 const { ALL_PERMS, EMPLOYEE_PERMS, LOCKED, MAIL_KEYS, STATUSES } = require("./constants");
 const { mailConfig, sendMail, mailHtml, mailRegistrationReceived, mailCredentials, mailRejected } = require("./mail");
 const { broadcast } = require("./realtime");
-const { uploadFile, removeFiles, signedUrl } = require("./storage");
+const { uploadFile, removeFiles, signedUrl, projectUploadUrl, projectFileExists, projectDownloadUrl, removeProjectFiles } = require("./storage");
 
 const app = express();
 
@@ -40,6 +40,33 @@ app.use(attachSession);
 
 // ----------------------------------------------------------------- auth
 
+// Attendance is automatic: signing in as an employee stamps today's login time, signing out stamps the logout time.
+async function markLogin(u) {
+  const t = nowTime(), d = today();
+  const a = await row("SELECT * FROM attendance WHERE user_id=? AND date=?", [u.id, d]);
+  if (a && a.status === "Leave") return;
+  if (a && a.check_in) {
+    if (a.check_out) await execute("UPDATE attendance SET check_out=NULL WHERE id=?", [a.id]); // signed back in the same day
+    return;
+  }
+  const ws = await setting("work_start", "09:30");
+  const grace = parseInt((await setting("late_grace_minutes", "10")) || "0", 10);
+  const [h, m] = ws.split(":").map(Number);
+  const total = h * 60 + m + grace;
+  const limit = `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
+  const st = t > limit ? "Late" : "Present";
+  if (a) await execute("UPDATE attendance SET check_in=?, status=? WHERE id=?", [t, st, a.id]);
+  else await execute("INSERT INTO attendance(user_id,date,check_in,status) VALUES(?,?,?,?)", [u.id, d, t, st]);
+}
+
+async function markLogout(u) {
+  const a = await row("SELECT * FROM attendance WHERE user_id=? AND date=?", [u.id, today()]);
+  if (!a || !a.check_in) return;
+  const t = nowTime();
+  await execute("UPDATE breaks SET end_time=? WHERE user_id=? AND date=? AND end_time IS NULL", [t, u.id, today()]);
+  await execute("UPDATE attendance SET check_out=? WHERE id=?", [t, a.id]);
+}
+
 app.post("/api/login", async (req, res) => {
   const b = req.body || {};
   const email = (b.email || "").trim().toLowerCase();
@@ -59,11 +86,13 @@ app.post("/api/login", async (req, res) => {
   writeSession(res, { ...req.sessionData, [key]: u.id });
   req.user = u;
   if (u.role !== "employee" || u.status === "Offline") await execute("UPDATE users SET status='Available' WHERE id=?", [u.id]);
+  if (u.role === "employee") await markLogin(u);
   await audit(req, "LOGIN", `Logged in to the ${u.role === "employee" ? "employee" : "admin"} dashboard`);
   res.json({ ok: true, redirect: u.role === "employee" ? "/employee" : "/admin" });
 });
 
 app.post("/api/logout", requireLogin(), async (req, res) => {
+  if (req.user.role === "employee") await markLogout(req.user);
   await audit(req, "LOGOUT", "Logged out");
   await execute("UPDATE users SET status='Offline' WHERE id=?", [req.user.id]);
   const rest = { ...req.sessionData };
@@ -899,41 +928,6 @@ app.get("/api/me/team", requireEmployee(), async (req, res) => {
   res.json(team.map((e) => ({ ...e, live_status: meetIds.has(e.id) ? "In Meeting" : e.status })));
 });
 
-app.post("/api/me/checkin", requireEmployee(), async (req, res) => {
-  const g = await needsPerm(req, "attendance.self", "check in");
-  if (g) return res.status(403).json(g);
-  const u = req.user;
-  const a = await todayAtt(u.id);
-  if (a && a.check_in) return res.status(400).json({ error: "Already checked in today" });
-  const t = nowTime();
-  const ws = await setting("work_start", "09:30");
-  const grace = parseInt((await setting("late_grace_minutes", "10")) || "0", 10);
-  const [h, m] = ws.split(":").map(Number);
-  const total = h * 60 + m + grace;
-  const limit = `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
-  const st = t > limit ? "Late" : "Present";
-  if (a) await execute("UPDATE attendance SET check_in=?, status=? WHERE id=?", [t, st, a.id]);
-  else await execute("INSERT INTO attendance(user_id,date,check_in,status) VALUES(?,?,?,?)", [u.id, today(), t, st]);
-  await execute("UPDATE users SET status='Available' WHERE id=?", [u.id]);
-  await audit(req, "CHECK_IN", `Checked in at ${t} (${st})`);
-  res.json({ ok: true, time: t, status: st });
-});
-
-app.post("/api/me/checkout", requireEmployee(), async (req, res) => {
-  const g = await needsPerm(req, "attendance.self", "check out");
-  if (g) return res.status(403).json(g);
-  const u = req.user;
-  const a = await todayAtt(u.id);
-  if (!a || !a.check_in) return res.status(400).json({ error: "You haven't checked in yet" });
-  if (a.check_out) return res.status(400).json({ error: "Already checked out today" });
-  const t = nowTime();
-  await execute("UPDATE breaks SET end_time=? WHERE user_id=? AND date=? AND end_time IS NULL", [t, u.id, today()]);
-  await execute("UPDATE attendance SET check_out=? WHERE id=?", [t, a.id]);
-  await execute("UPDATE users SET status='Offline' WHERE id=?", [u.id]);
-  await audit(req, "CHECK_OUT", `Checked out at ${t}`);
-  res.json({ ok: true, time: t });
-});
-
 app.post("/api/me/break/:action", requireEmployee(), async (req, res) => {
   const g = await needsPerm(req, "attendance.self", "take breaks");
   if (g) return res.status(403).json(g);
@@ -1227,6 +1221,50 @@ app.use((err, req, res, next) => {
     return res.status(400).json({ error: msg });
   }
   next(err);
+});
+
+// ----------------------------------------------------------------- project files (shared by admin + employees)
+// Upload is two steps so the bytes go browser -> Storage directly: /sign hands out a one-time
+// upload URL, then the browser registers the finished file here. No size limit is enforced by
+// Teamo itself; the cap is whatever the Supabase project/plan allows per object.
+app.post("/api/project-files/sign", requireLogin(), async (req, res) => {
+  const name = String((req.body || {}).name || "").trim().slice(0, 200);
+  if (!name) return res.status(400).json({ error: "File name is required" });
+  const safe = name.replace(/[^A-Za-z0-9._-]+/g, "_").slice(-120);
+  const key = `${Date.now()}-${crypto.randomBytes(4).toString("hex")}-${safe}`;
+  res.json({ key, upload_url: await projectUploadUrl(key) });
+});
+
+app.post("/api/project-files", requireLogin(), async (req, res) => {
+  const b = req.body || {}, name = String(b.name || "").trim().slice(0, 200), key = String(b.key || "");
+  if (!name || !/^\d+-[0-9a-f]{8}-[A-Za-z0-9._-]+$/.test(key)) return res.status(400).json({ error: "Invalid upload" });
+  if (!(await projectFileExists(key))) return res.status(400).json({ error: "The file did not finish uploading" });
+  const r = await row(
+    "INSERT INTO project_files(name,stored,size,mime,uploaded_by,uploader,ts) VALUES(?,?,?,?,?,?,?) RETURNING id",
+    [name, key, Math.max(0, Math.floor(Number(b.size) || 0)), String(b.type || "").slice(0, 120), req.user.id, req.user.name, nowTs()]
+  );
+  await audit(req, "FILE_UPLOAD", `Uploaded project file ${name}`);
+  res.json({ ok: true, id: r.id });
+});
+
+app.get("/api/project-files", requireLogin(), async (req, res) => {
+  res.json(await rows("SELECT id,name,size,mime,uploaded_by,uploader,ts FROM project_files ORDER BY id DESC"));
+});
+
+app.get("/api/project-files/:id/download", requireLogin(), async (req, res) => {
+  const f = await row("SELECT * FROM project_files WHERE id=?", [req.params.id]);
+  if (!f) return res.status(404).json({ error: "File not found" });
+  res.json({ url: await projectDownloadUrl(f.stored, f.name) });
+});
+
+app.delete("/api/project-files/:id", requireLogin(), async (req, res) => {
+  const f = await row("SELECT * FROM project_files WHERE id=?", [req.params.id]);
+  if (!f) return res.status(404).json({ error: "File not found" });
+  if (req.user.role === "employee" && f.uploaded_by !== req.user.id) return res.status(403).json({ error: "You can only delete files you uploaded" });
+  await removeProjectFiles([f.stored]);
+  await execute("DELETE FROM project_files WHERE id=?", [f.id]);
+  await audit(req, "FILE_DELETE", `Deleted project file ${f.name}`);
+  res.json({ ok: true });
 });
 
 // Catches anything else thrown/rejected by a route (the async-handler wrapper above turns

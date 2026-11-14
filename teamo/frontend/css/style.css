@@ -320,3 +320,14 @@ tr:hover td{background:color-mix(in srgb,var(--brand-soft) 35%,transparent)}
 }
 @media (max-width:560px){.g-4{grid-template-columns:1fr 1fr;gap:12px}.stat .val{font-size:26px}.form-grid{grid-template-columns:1fr}
   .topbar h1{font-size:18px}.topbar .sub{display:none}.search{min-width:0;flex:1}.card{padding:16px}.table-wrap{margin:0 -16px -16px}}
+
+/* project files */
+.dropzone{display:flex;flex-direction:column;align-items:center;gap:6px;padding:34px 20px;border:2px dashed var(--border);border-radius:16px;background:var(--surface-2);cursor:pointer;text-align:center;transition:border-color .15s,background .15s}
+.dropzone svg.i{width:30px;height:30px;color:var(--accent,#6366f1)}
+.dropzone:hover,.dropzone.over{border-color:#6366f1;background:rgba(99,102,241,.08)}
+.uprow{margin-top:12px;padding:12px 14px;border:1px solid var(--border);border-radius:12px;background:var(--surface-2)}
+.uprow .bar{height:8px;border-radius:8px;background:var(--border);margin:8px 0 6px;overflow:hidden}
+.uprow .bar i{display:block;height:100%;width:0;background:#6366f1;transition:width .2s}
+.uprow.done .bar i{background:var(--green,#10b981)}
+.uprow.fail .bar i{background:var(--red,#ef4444)}
+.uprow.fail .pst{color:var(--red,#ef4444)}

@@ -37,7 +37,7 @@ V.dashboard = async (el) => {
 
     <div class="grid g-21 mt">
       <div class="card"><div class="card-h"><h3>Live team status</h3><span class="hint row" style="gap:6px"><span class="live-dot"></span>Auto-refreshing</span></div>
-        <div class="table-wrap"><table><thead><tr><th>Employee</th><th>Department</th><th>Check-in</th><th>Status</th></tr></thead><tbody>
+        <div class="table-wrap"><table><thead><tr><th>Employee</th><th>Department</th><th>Login</th><th>Status</th></tr></thead><tbody>
         ${d.live.map((e) => `<tr><td>${T.person(e)}</td><td class="muted">${T.esc(e.department)}</td><td>${T.fmtTime(e.check_in)}</td><td>${T.statusBadge(e.live_status)}</td></tr>`).join("")}
         </tbody></table></div></div>
       <div class="grid" style="align-content:start">
@@ -244,7 +244,7 @@ V.attendance = async (el, date = T.today(), q = "") => {
     <div class="grid g-4">${T.stat("Present", count("Present"), "check", "green")}${T.stat("Late", count("Late"), "clock", "amber")}
       ${T.stat("Absent", count("Absent"), "x", "pink")}${T.stat("On leave / Not marked", count("Leave") + count("Not marked"), "calendar", "cyan")}</div>
     <div class="card mt"><div class="card-h"><h3>Attendance register</h3><span class="hint" id="cnt">Click edit to mark or correct</span></div><div class="table-wrap"><table>
-    <thead><tr><th>Employee</th><th>Department</th><th>Check-in</th><th>Check-out</th><th>Status</th><th>Note</th><th></th></tr></thead><tbody id="tb"></tbody></table></div></div></div>`;
+    <thead><tr><th>Employee</th><th>Department</th><th>Login</th><th>Logout</th><th>Status</th><th>Note</th><th></th></tr></thead><tbody id="tb"></tbody></table></div></div></div>`;
   const draw = () => {
     const ql = q.toLowerCase();
     const list = d.records.filter((r) => `${r.name} ${r.department}`.toLowerCase().includes(ql));
@@ -264,7 +264,7 @@ V.attendance = async (el, date = T.today(), q = "") => {
     const r = d.records.find((x) => x.id == uid);
     const f = await T.modal({ title: `Mark attendance · ${r.name}`, body: `<div class="form-grid">
       ${T.select("Status", "status", ["Present", "Late", "Absent", "Leave"], r.status === "Not marked" ? "Present" : r.status, "full")}
-      ${T.field("Check-in", "check_in", r.check_in || "09:30", "time")}${T.field("Check-out", "check_out", r.check_out || "", "time")}
+      ${T.field("Login time", "check_in", r.check_in || "09:30", "time")}${T.field("Logout time", "check_out", r.check_out || "", "time")}
       ${T.field("Note", "note", r.note, "text", "full")}</div>` });
     if (!f) return;
     try { await T.api("/api/attendance", { method: "POST", body: { ...f, user_id: r.id, date: d.date } }); T.toast("Attendance saved"); go(d.date); } catch (e) { T.toast(e.message, "err"); }
@@ -362,7 +362,7 @@ V.reports = async (el, from, to) => {
     <div class="grid g-4">${T.stat("Avg attendance", r.totals.avg_attendance + "%", "check", "green")}${T.stat("Present days", sum("present"), "user", "indigo")}
       ${T.stat("Late arrivals", r.totals.late, "alert", "amber")}${T.stat("Absent days", sum("absent"), "x", "pink")}</div>
     <div class="card mt"><div class="card-h"><h3>Attendance history</h3><span class="hint">${r.records.length} records</span></div><div class="table-wrap"><table>
-      <thead><tr><th>Date</th><th>Employee</th><th>Check-in</th><th>Check-out</th><th>Hours</th><th>Status</th></tr></thead><tbody>
+      <thead><tr><th>Date</th><th>Employee</th><th>Login</th><th>Logout</th><th>Hours</th><th>Status</th></tr></thead><tbody>
       ${r.records.map((x) => `<tr><td class="bold">${T.fmtDate(x.date)}</td><td>${T.person(x, x.department)}</td><td>${T.fmtTime(x.check_in)}</td><td>${T.fmtTime(x.check_out)}</td><td>${x.hours ? x.hours + "h" : "—"}</td><td>${T.badge(x.status)}</td></tr>`).join("") || '<tr><td colspan="6" class="empty">No attendance records</td></tr>'}</tbody></table></div></div>
     <h3 style="margin:26px 0 14px">Task completion</h3>
     <div class="grid g-3">${T.stat("Tasks approved", r.totals.tasks_done, "zap", "cyan")}${T.stat("Total tasks", sum("tasks_total"), "list", "indigo")}
@@ -440,6 +440,8 @@ const renderEmailSettings = async (el) => {
 };
 
 /* ---------------- Permissions ---------------- */
+V.project = (el) => T.projectView(el, ME.user);
+
 V.permissions = async (el) => {
   const { perms, employee_perms } = await T.api("/api/permissions");
   const editable = can("permissions.manage");
@@ -481,6 +483,7 @@ T.boot("admin", async (me) => {
       { id: "reports", label: "Reports & Analytics", icon: "chart", perm: "reports.view" },
       { id: "settings", label: "Settings", icon: "cog", sub: "System preferences and account" },
       { id: "permissions", label: "Permissions", icon: "shield", sub: "Role-based access control" },
+      { id: "project", label: "Project", icon: "folder", sub: "Share files with your team" },
     ],
   });
 });

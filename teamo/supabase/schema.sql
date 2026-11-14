@@ -198,3 +198,17 @@ CREATE POLICY room_chat_select_anon ON room_chat FOR SELECT USING (true);
 INSERT INTO storage.buckets (id, name, public, file_size_limit)
 VALUES ('task-attachments', 'task-attachments', false, 10000000)
 ON CONFLICT (id) DO NOTHING;
+
+-- Project files: anything an admin or employee uploads to the shared Project area.
+-- The bytes live in the private `project-files` Storage bucket (created on first upload
+-- by the backend, no size limit set on the bucket itself).
+CREATE TABLE IF NOT EXISTS project_files(
+  id SERIAL PRIMARY KEY,
+  name TEXT NOT NULL,
+  stored TEXT NOT NULL,
+  size BIGINT DEFAULT 0,
+  mime TEXT DEFAULT '',
+  uploaded_by INTEGER,
+  uploader TEXT DEFAULT '',
+  ts TEXT
+);

@@ -24,4 +24,40 @@ async function signedUrl(key, expiresIn = 60, downloadName) {
   return data.signedUrl;
 }
 
-module.exports = { uploadFile, removeFiles, signedUrl };
+// Project files: big files never pass through the function (Netlify caps a request body at ~6 MB).
+// The browser uploads straight to Storage with a one-time signed upload URL instead.
+const PROJECT_BUCKET = "project-files";
+let bucketReady = false;
+
+async function ensureProjectBucket() {
+  if (bucketReady) return;
+  const { error } = await supabase.storage.createBucket(PROJECT_BUCKET, { public: false });
+  if (error && !/already exists|duplicate/i.test(error.message || "")) throw error;
+  bucketReady = true;
+}
+
+async function projectUploadUrl(key) {
+  await ensureProjectBucket();
+  const { data, error } = await supabase.storage.from(PROJECT_BUCKET).createSignedUploadUrl(key);
+  if (error) throw error;
+  return data.signedUrl;
+}
+
+async function projectFileExists(key) {
+  const { error } = await supabase.storage.from(PROJECT_BUCKET).createSignedUrl(key, 5);
+  return !error;
+}
+
+async function projectDownloadUrl(key, downloadName, expiresIn = 3600) {
+  const { data, error } = await supabase.storage.from(PROJECT_BUCKET).createSignedUrl(key, expiresIn, { download: downloadName });
+  if (error) throw error;
+  return data.signedUrl;
+}
+
+async function removeProjectFiles(keys) {
+  if (!keys || !keys.length) return;
+  const { error } = await supabase.storage.from(PROJECT_BUCKET).remove(keys);
+  if (error) throw error;
+}
+
+module.exports = { uploadFile, removeFiles, signedUrl, projectUploadUrl, projectFileExists, projectDownloadUrl, removeProjectFiles };

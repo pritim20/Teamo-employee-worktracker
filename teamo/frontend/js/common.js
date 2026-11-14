@@ -31,6 +31,7 @@ const P = {
   chat: "M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z",
   file: "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M8 13h8M8 17h5",
   link: "M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71",
+  folder: "M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z",
   upload: "M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12",
   send: "M22 2L11 13M22 2l-7 20-4-9-9-4z",
   list: "M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01",
@@ -64,7 +65,7 @@ T.avatar = (u, size = "") => `<div class="avatar ${size}" style="background:${u.
 T.person = (u, sub) => `<div class="person">${T.avatar(u)}<div style="min-width:0"><div class="n">${T.esc(u.name)}</div><div class="d">${T.esc(sub ?? u.designation ?? "")}</div></div></div>`;
 
 const BADGE = {
-  Present: "green", Late: "amber", Absent: "red", Leave: "blue", "Not marked": "gray", "Not checked in": "gray",
+  Present: "green", Late: "amber", Absent: "red", Leave: "blue", "Not marked": "gray", "Not checked in": "gray", "Logged out": "gray",
   Assigned: "amber", "In Progress": "blue", Submitted: "violet", Approved: "green",
   High: "red", Medium: "amber", Low: "gray",
   Available: "green", Busy: "red", "In Meeting": "violet", "On Break": "amber", Away: "gray", Offline: "gray", "Checked out": "cyan",
@@ -270,6 +271,79 @@ document.addEventListener("click", async (e) => {
   if (!b) return;
   try { await T.api(`/api/task-attachments/${b.dataset.rmatt}`, { method: "DELETE" }); b.closest("span.row").remove(); T.toast("Attachment removed"); } catch (er) { T.toast(er.message, "err"); }
 });
+/* ---------------- Project files (same page in both panels) ---------------- */
+T.fmtSize = (n) => { n = Number(n) || 0; const u = ["B", "KB", "MB", "GB", "TB"]; let i = 0; while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; } return `${i ? n.toFixed(n >= 100 ? 0 : 1) : n} ${u[i]}`; };
+// Bytes go browser -> Supabase Storage with a one-time signed URL (the function only signs + records),
+// so file size isn't limited by Netlify. XHR rather than fetch so the progress bar is real.
+T.putFile = (url, file, onProgress) => new Promise((resolve, reject) => {
+  const x = new XMLHttpRequest(), fd = new FormData();
+  fd.append("cacheControl", "3600");
+  fd.append("", file);
+  x.open("PUT", url);
+  x.upload.onprogress = (e) => e.lengthComputable && onProgress(e.loaded / e.total);
+  x.onload = () => {
+    if (x.status >= 200 && x.status < 300) return resolve();
+    let m = "";
+    try { m = JSON.parse(x.responseText).message || ""; } catch (_) {}
+    reject(new Error(/exceeded the maximum allowed size/i.test(m) ? "This file is larger than the storage plan allows" : m || `Upload failed (${x.status})`));
+  };
+  x.onerror = () => reject(new Error("Network error while uploading"));
+  x.send(fd);
+});
+T.projectView = async (el, me) => {
+  const fileIcon = (f) => /^image\//.test(f.mime) ? "file" : /^video\//.test(f.mime) ? "video" : "file";
+  let list = await T.api("/api/project-files"), q = "";
+  el.innerHTML = `<div class="card"><div class="card-h"><h3>Project files</h3><span class="hint">Share any file with the whole team, any size your storage plan allows</span></div>
+    <label class="dropzone" id="pdrop">${T.icon("upload")}<b>Drop files here or click to choose</b><span class="muted small">Images, videos, documents, archives — anything</span>
+      <input type="file" id="pfile" multiple hidden></label><div id="pup"></div></div>
+    <div class="card" style="margin-top:20px"><div class="card-h"><h3>All files</h3>
+      <div class="search">${T.icon("search")}<input class="input" id="pq" placeholder="Search files"></div></div><div id="plist"></div></div>`;
+  const draw = () => {
+    const rows = list.filter((f) => !q || (f.name + " " + f.uploader).toLowerCase().includes(q));
+    el.querySelector("#plist").innerHTML = rows.length ? `<div class="table-wrap"><table><thead><tr><th>File</th><th>Size</th><th>Uploaded by</th><th>Date</th><th></th></tr></thead><tbody>${rows.map((f) => `<tr>
+      <td><span class="row" style="gap:10px">${T.icon(fileIcon(f))}<b style="word-break:break-all">${T.esc(f.name)}</b></span></td>
+      <td>${T.fmtSize(f.size)}</td><td>${T.esc(f.uploader)}</td><td>${T.esc((f.ts || "").slice(0, 16))}</td>
+      <td style="white-space:nowrap"><button class="btn btn-sm" data-dl="${f.id}">${T.icon("download")}Download</button>
+      ${me.role !== "employee" || f.uploaded_by === me.id ? `<button class="btn btn-icon del" data-rm="${f.id}" title="Delete" aria-label="Delete">${T.icon("trash")}</button>` : ""}</td></tr>`).join("")}</tbody></table></div>`
+      : `<div class="empty">${list.length ? "No files match your search" : "No files yet — upload the first one"}</div>`;
+    el.querySelectorAll("[data-dl]").forEach((b) => (b.onclick = async () => {
+      b.disabled = true;
+      try { const { url } = await T.api(`/api/project-files/${b.dataset.dl}/download`); const a = document.createElement("a"); a.href = url; a.rel = "noopener"; document.body.appendChild(a); a.click(); a.remove(); }
+      catch (e) { T.toast(e.message, "err"); }
+      b.disabled = false;
+    }));
+    el.querySelectorAll("[data-rm]").forEach((b) => (b.onclick = async () => {
+      const f = list.find((x) => x.id == b.dataset.rm);
+      if (!(await T.confirm("Delete file", `Delete "${f.name}" for everyone?`))) return;
+      try { await T.api(`/api/project-files/${f.id}`, { method: "DELETE" }); list = list.filter((x) => x.id !== f.id); draw(); T.toast("File deleted"); } catch (e) { T.toast(e.message, "err"); }
+    }));
+  };
+  const upload = async (files) => {
+    for (const f of files) {
+      const row = document.createElement("div");
+      row.className = "uprow";
+      row.innerHTML = `<div class="row" style="justify-content:space-between"><b style="word-break:break-all">${T.esc(f.name)}</b><span class="muted small">${T.fmtSize(f.size)}</span></div><div class="bar"><i></i></div><div class="small muted pst">Starting…</div>`;
+      el.querySelector("#pup").prepend(row);
+      const bar = row.querySelector(".bar i"), st = row.querySelector(".pst");
+      try {
+        const { key, upload_url } = await T.api("/api/project-files/sign", { method: "POST", body: { name: f.name } });
+        await T.putFile(upload_url, f, (p) => { bar.style.width = Math.round(p * 100) + "%"; st.textContent = `Uploading… ${Math.round(p * 100)}%`; });
+        st.textContent = "Saving…";
+        await T.api("/api/project-files", { method: "POST", body: { key, name: f.name, size: f.size, type: f.type } });
+        bar.style.width = "100%"; row.classList.add("done"); st.textContent = "Uploaded";
+        list = await T.api("/api/project-files"); draw();
+        setTimeout(() => row.remove(), 4000);
+      } catch (e) { row.classList.add("fail"); st.textContent = e.message; T.toast(`${f.name}: ${e.message}`, "err"); }
+    }
+  };
+  const pick = el.querySelector("#pfile"), drop = el.querySelector("#pdrop");
+  pick.onchange = () => { upload([...pick.files]); pick.value = ""; };
+  ["dragenter", "dragover"].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add("over"); }));
+  ["dragleave", "drop"].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.remove("over"); }));
+  drop.addEventListener("drop", (e) => upload([...e.dataTransfer.files]));
+  el.querySelector("#pq").oninput = (e) => { q = e.target.value.trim().toLowerCase(); draw(); };
+  draw();
+};
 T.feedbackList = (list) => list.map((f) => `<div style="padding:8px 12px;margin-top:8px;border-radius:12px;border:1px solid var(--border);background:var(--surface-2)">
   <div class="small muted"><b>${T.esc(f.author)}</b> ${f.kind === "approved" ? "approved this work" : "requested changes"} · ${T.esc(f.ts.slice(0, 16))}</div>
   ${f.text ? `<div style="white-space:pre-wrap">${T.esc(f.text)}</div>` : ""}</div>`).join("");
