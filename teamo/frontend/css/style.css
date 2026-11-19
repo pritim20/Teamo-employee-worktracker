@@ -331,3 +331,11 @@ tr:hover td{background:color-mix(in srgb,var(--brand-soft) 35%,transparent)}
 .uprow.done .bar i{background:var(--green,#10b981)}
 .uprow.fail .bar i{background:var(--red,#ef4444)}
 .uprow.fail .pst{color:var(--red,#ef4444)}
+
+/* sidebar: icons-only rail that opens on hover; the slot keeps the page from shifting */
+.side-slot{flex:none;width:78px;position:relative;transition:width .2s}
+.side-slot.pinned{width:260px}
+.side-slot .sidebar{position:absolute;left:0;top:0;bottom:0;height:auto}
+.side-slot:not(.pinned) .sidebar:not(.collapsed){box-shadow:14px 0 40px -14px rgba(0,0,0,.5)}
+@media(max-width:900px){.side-slot{display:contents}.side-slot .sidebar{position:fixed;left:0;top:0;bottom:auto;height:100vh}}
+.brand{user-select:none}

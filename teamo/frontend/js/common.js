@@ -391,13 +391,13 @@ T.shell = ({ me, nav, views, tagline }) => {
   const root = document.getElementById("app");
   const items = nav.filter((n) => !n.perm || me.perms.includes(n.perm));
   root.innerHTML = `<div class="app">
-    <aside class="sidebar" id="sidebar">
-      <div class="brand"><div class="brand-mark" id="brandMark" title="Click to collapse, double-click to expand" style="cursor:pointer">${T.logo}</div><div class="brand-text"><div class="brand-name">Teamo</div><div class="brand-tag">${T.esc(tagline)}</div></div></div>
+    <div class="side-slot" id="sideSlot"><aside class="sidebar" id="sidebar">
+      <div class="brand"><div class="brand-mark" id="brandMark" title="Click to keep the sidebar open or closed" style="cursor:pointer">${T.logo}</div><div class="brand-text"><div class="brand-name">Teamo</div><div class="brand-tag">${T.esc(tagline)}</div></div></div>
       <div class="nav-label">Menu</div>
       <nav class="nav">${items.map((n) => `<a data-view="${n.id}" title="${T.esc(n.label)}">${T.icon(n.icon)}<span>${n.label}</span></a>`).join("")}
         <a class="logout" id="logoutBtn" title="Logout">${T.icon("logout")}<span>Logout</span></a></nav>
       <div class="side-card">${T.avatar(me.user)}<div><div class="who">${T.esc(me.user.name)}</div><div class="role">${T.esc(me.user.role)} · ${T.esc(me.user.department)}</div></div></div>
-    </aside>
+    </aside></div>
     <div class="scrim" id="scrim"></div>
     <main class="main">
       <header class="topbar">
@@ -421,12 +421,17 @@ T.shell = ({ me, nav, views, tagline }) => {
   const closeNav = () => { sb.classList.remove("open"); scrim.classList.remove("open"); };
   document.getElementById("menuBtn").onclick = () => { sb.classList.add("open"); scrim.classList.add("open"); };
   scrim.onclick = closeNav;
-  // click the logo to collapse the sidebar to icons, double-click it to expand again
-  const setCollapsed = (v) => { sb.classList.toggle("collapsed", v); try { localStorage.setItem("teamo-sb", v ? "1" : "0"); } catch (e) { /* ignore */ } };
-  try { setCollapsed(localStorage.getItem("teamo-sb") === "1"); } catch (e) { /* ignore */ }
-  const mark = document.getElementById("brandMark");
-  mark.onclick = () => setCollapsed(true);
-  mark.ondblclick = () => setCollapsed(false);
+  // Sidebar shows icons only; it opens while the pointer is over it and closes when the pointer leaves.
+  // Clicking the logo pins it open (page shifts over), clicking again closes it back to icons.
+  const slot = document.getElementById("sideSlot"), mark = document.getElementById("brandMark");
+  const mobile = () => matchMedia("(max-width:900px)").matches;
+  let pinned = false;
+  try { pinned = localStorage.getItem("teamo-sb-pin") === "1"; } catch (e) { /* ignore */ }
+  const applyPin = () => { slot.classList.toggle("pinned", pinned); sb.classList.toggle("collapsed", !pinned); };
+  applyPin();
+  sb.onmouseenter = () => { if (!mobile()) sb.classList.remove("collapsed"); };
+  sb.onmouseleave = () => { if (!mobile() && !pinned) sb.classList.add("collapsed"); };
+  mark.onclick = () => { pinned = !pinned; applyPin(); try { localStorage.setItem("teamo-sb-pin", pinned ? "1" : "0"); } catch (e) { /* ignore */ } };
   document.getElementById("themeBtn").onclick = T.toggleTheme;
   document.getElementById("logoutBtn").onclick = async () => { await T.api("/api/logout", { method: "POST" }); location.href = T.loginUrl(); };
   root.querySelectorAll(".nav a[data-view]").forEach((a) => (a.onclick = () => { location.hash = a.dataset.view; closeNav(); }));
