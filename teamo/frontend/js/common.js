@@ -290,6 +290,39 @@ T.putFile = (url, file, onProgress) => new Promise((resolve, reject) => {
   x.onerror = () => reject(new Error("Network error while uploading"));
   x.send(fd);
 });
+const FILE_KIND = { img: /^image\/|\.(png|jpe?g|gif|webp|svg|bmp|avif)$/i, vid: /^video\/|\.(mp4|webm|mov|m4v|ogv)$/i, aud: /^audio\/|\.(mp3|wav|ogg|m4a|aac)$/i, pdf: /pdf$|\.pdf$/i, txt: /^text\/|json$|\.(txt|md|csv|json|log|xml|ya?ml|js|css|py)$/i };
+T.fileKind = (f) => Object.keys(FILE_KIND).find((k) => FILE_KIND[k].test(f.mime || "") || FILE_KIND[k].test(f.name)) || "";
+T.downloadProjectFile = async (id) => {
+  const { url } = await T.api(`/api/project-files/${id}/download`);
+  const a = document.createElement("a"); a.href = url; a.rel = "noopener"; document.body.appendChild(a); a.click(); a.remove();
+};
+// opens the file for viewing in a popup (image, video, audio, PDF, text); other types get a Download prompt
+T.openProjectFile = async (f) => {
+  const kind = T.fileKind(f), ov = document.createElement("div");
+  ov.className = "overlay";
+  ov.innerHTML = `<div class="modal" style="max-width:min(1000px,96vw)"><div class="modal-h"><h3 style="word-break:break-all">${T.esc(f.name)}</h3><button type="button" class="icon-btn" data-x>${T.icon("x")}</button></div>
+    <div class="modal-b fview"><div class="muted">Opening…</div></div>
+    <div class="modal-f"><span class="muted small" style="margin-right:auto">${T.fmtSize(f.size)} · ${T.esc(f.uploader)}</span><button type="button" class="btn primary" data-dl>${T.icon("download")}Download</button></div></div>`;
+  const close = () => ov.remove();
+  ov.addEventListener("click", (e) => { if (e.target === ov || e.target.closest("[data-x]")) close(); });
+  ov.querySelector("[data-dl]").onclick = () => T.downloadProjectFile(f.id).catch((e) => T.toast(e.message, "err"));
+  document.body.appendChild(ov);
+  const box = ov.querySelector(".fview");
+  if (!kind) { box.innerHTML = `<div class="empty">This file type can't be previewed here.<br>Use Download to open it on your computer.</div>`; return; }
+  try {
+    const { url } = await T.api(`/api/project-files/${f.id}/download?view=1`), u = T.esc(url);
+    if (kind === "txt") { // shown as text inside the page, so nothing in the file can run
+      if (f.size > 2 * 1024 * 1024) { box.innerHTML = `<div class="empty">This text file is too large to preview. Use Download.</div>`; return; }
+      box.innerHTML = `<pre class="ftext"></pre>`;
+      box.querySelector("pre").textContent = await (await fetch(url)).text();
+      return;
+    }
+    box.innerHTML = kind === "img" ? `<img src="${u}" alt="${T.esc(f.name)}">`
+      : kind === "vid" ? `<video src="${u}" controls autoplay></video>`
+      : kind === "aud" ? `<audio src="${u}" controls autoplay style="width:100%"></audio>`
+      : `<iframe src="${u}" title="${T.esc(f.name)}"></iframe>`;
+  } catch (e) { box.innerHTML = `<div class="empty">${T.esc(e.message)}</div>`; }
+};
 T.projectView = async (el, me) => {
   const fileIcon = (f) => /^image\//.test(f.mime) ? "file" : /^video\//.test(f.mime) ? "video" : "file";
   let list = await T.api("/api/project-files"), q = "";
@@ -299,20 +332,25 @@ T.projectView = async (el, me) => {
     <div class="card" style="margin-top:20px"><div class="card-h"><h3>All files</h3>
       <div class="search">${T.icon("search")}<input class="input" id="pq" placeholder="Search files"></div></div><div id="plist"></div></div>`;
   const draw = () => {
-    const rows = list.filter((f) => !q || (f.name + " " + f.uploader).toLowerCase().includes(q));
-    el.querySelector("#plist").innerHTML = rows.length ? `<div class="table-wrap"><table><thead><tr><th>File</th><th>Size</th><th>Uploaded by</th><th>Date</th><th></th></tr></thead><tbody>${rows.map((f) => `<tr>
+    const shown = list.filter((f) => !q || (f.name + " " + f.uploader).toLowerCase().includes(q));
+    el.querySelector("#plist").innerHTML = shown.length ? `<div class="table-wrap"><table><thead><tr><th>File</th><th>Size</th><th>Uploaded by</th><th>Date</th><th></th></tr></thead><tbody>${shown.map((f) => `<tr class="frow" data-open="${f.id}" tabindex="0" title="Click to open">
       <td><span class="row" style="gap:10px">${T.icon(fileIcon(f))}<b style="word-break:break-all">${T.esc(f.name)}</b></span></td>
       <td>${T.fmtSize(f.size)}</td><td>${T.esc(f.uploader)}</td><td>${T.esc((f.ts || "").slice(0, 16))}</td>
       <td style="white-space:nowrap"><button class="btn btn-sm" data-dl="${f.id}">${T.icon("download")}Download</button>
       ${me.role !== "employee" || f.uploaded_by === me.id ? `<button class="btn btn-icon del" data-rm="${f.id}" title="Delete" aria-label="Delete">${T.icon("trash")}</button>` : ""}</td></tr>`).join("")}</tbody></table></div>`
       : `<div class="empty">${list.length ? "No files match your search" : "No files yet — upload the first one"}</div>`;
-    el.querySelectorAll("[data-dl]").forEach((b) => (b.onclick = async () => {
-      b.disabled = true;
-      try { const { url } = await T.api(`/api/project-files/${b.dataset.dl}/download`); const a = document.createElement("a"); a.href = url; a.rel = "noopener"; document.body.appendChild(a); a.click(); a.remove(); }
-      catch (e) { T.toast(e.message, "err"); }
+    el.querySelectorAll("[data-open]").forEach((tr) => {
+      const open = () => T.openProjectFile(list.find((x) => x.id == tr.dataset.open));
+      tr.onclick = open;
+      tr.onkeydown = (e) => { if (e.key === "Enter" && e.target === tr) open(); };
+    });
+    el.querySelectorAll("[data-dl]").forEach((b) => (b.onclick = async (e) => {
+      e.stopPropagation(); b.disabled = true;
+      try { await T.downloadProjectFile(b.dataset.dl); } catch (er) { T.toast(er.message, "err"); }
       b.disabled = false;
     }));
-    el.querySelectorAll("[data-rm]").forEach((b) => (b.onclick = async () => {
+    el.querySelectorAll("[data-rm]").forEach((b) => (b.onclick = async (e) => {
+      e.stopPropagation();
       const f = list.find((x) => x.id == b.dataset.rm);
       if (!(await T.confirm("Delete file", `Delete "${f.name}" for everyone?`))) return;
       try { await T.api(`/api/project-files/${f.id}`, { method: "DELETE" }); list = list.filter((x) => x.id !== f.id); draw(); T.toast("File deleted"); } catch (e) { T.toast(e.message, "err"); }
@@ -325,6 +363,7 @@ T.projectView = async (el, me) => {
       row.innerHTML = `<div class="row" style="justify-content:space-between"><b style="word-break:break-all">${T.esc(f.name)}</b><span class="muted small">${T.fmtSize(f.size)}</span></div><div class="bar"><i></i></div><div class="small muted pst">Starting…</div>`;
       el.querySelector("#pup").prepend(row);
       const bar = row.querySelector(".bar i"), st = row.querySelector(".pst");
+      T.uploading = (T.uploading || 0) + 1;
       try {
         const { key, upload_url } = await T.api("/api/project-files/sign", { method: "POST", body: { name: f.name } });
         await T.putFile(upload_url, f, (p) => { bar.style.width = Math.round(p * 100) + "%"; st.textContent = `Uploading… ${Math.round(p * 100)}%`; });
@@ -334,6 +373,7 @@ T.projectView = async (el, me) => {
         list = await T.api("/api/project-files"); draw();
         setTimeout(() => row.remove(), 4000);
       } catch (e) { row.classList.add("fail"); st.textContent = e.message; T.toast(`${f.name}: ${e.message}`, "err"); }
+      finally { T.uploading--; }
     }
   };
   const pick = el.querySelector("#pfile"), drop = el.querySelector("#pdrop");
@@ -422,16 +462,20 @@ T.shell = ({ me, nav, views, tagline }) => {
   document.getElementById("menuBtn").onclick = () => { sb.classList.add("open"); scrim.classList.add("open"); };
   scrim.onclick = closeNav;
   // Sidebar shows icons only; it opens while the pointer is over it and closes when the pointer leaves.
-  // Clicking the logo pins it open (page shifts over), clicking again closes it back to icons.
+  // The page resizes with it (wide when it is closed, narrower when it is open).
+  // Clicking the logo keeps it open, clicking again closes it back to icons.
   const slot = document.getElementById("sideSlot"), mark = document.getElementById("brandMark");
   const mobile = () => matchMedia("(max-width:900px)").matches;
-  let pinned = false;
+  let pinned = false, fit;
   try { pinned = localStorage.getItem("teamo-sb-pin") === "1"; } catch (e) { /* ignore */ }
-  const applyPin = () => { slot.classList.toggle("pinned", pinned); sb.classList.toggle("collapsed", !pinned); };
-  applyPin();
-  sb.onmouseenter = () => { if (!mobile()) sb.classList.remove("collapsed"); };
-  sb.onmouseleave = () => { if (!mobile() && !pinned) sb.classList.add("collapsed"); };
-  mark.onclick = () => { pinned = !pinned; applyPin(); try { localStorage.setItem("teamo-sb-pin", pinned ? "1" : "0"); } catch (e) { /* ignore */ } };
+  const setOpen = (v) => {
+    sb.classList.toggle("collapsed", !v); slot.classList.toggle("pinned", v);
+    clearTimeout(fit); fit = setTimeout(() => window.dispatchEvent(new Event("resize")), 240); // let charts/tables re-fit
+  };
+  setOpen(pinned);
+  sb.onmouseenter = () => { if (!mobile()) setOpen(true); };
+  sb.onmouseleave = () => { if (!mobile() && !pinned) setOpen(false); };
+  mark.onclick = () => { pinned = !pinned; setOpen(pinned); try { localStorage.setItem("teamo-sb-pin", pinned ? "1" : "0"); } catch (e) { /* ignore */ } };
   document.getElementById("themeBtn").onclick = T.toggleTheme;
   document.getElementById("logoutBtn").onclick = async () => { await T.api("/api/logout", { method: "POST" }); location.href = T.loginUrl(); };
   root.querySelectorAll(".nav a[data-view]").forEach((a) => (a.onclick = () => { location.hash = a.dataset.view; closeNav(); }));
@@ -444,7 +488,7 @@ T.shell = ({ me, nav, views, tagline }) => {
   // re-render, and a re-render never interrupts active typing or an open dialog.
   let activeItem = null, activeView = null, pulseDebounce;
   const triggerLiveRefresh = () => {
-    if (!activeItem || !activeView || document.hidden) return;
+    if (!activeItem || !activeView || document.hidden || T.uploading) return; // a live re-render would wipe running upload bars
     const a = document.activeElement;
     if (document.querySelector(".overlay") || (a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName))) return;
     views[activeItem.id](activeView).catch(() => {});

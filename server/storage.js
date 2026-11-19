@@ -48,8 +48,9 @@ async function projectFileExists(key) {
   return !error;
 }
 
+// downloadName set -> browser saves the file; left out -> served inline so it can be viewed in the page
 async function projectDownloadUrl(key, downloadName, expiresIn = 3600) {
-  const { data, error } = await supabase.storage.from(PROJECT_BUCKET).createSignedUrl(key, expiresIn, { download: downloadName });
+  const { data, error } = await supabase.storage.from(PROJECT_BUCKET).createSignedUrl(key, expiresIn, downloadName ? { download: downloadName } : undefined);
   if (error) throw error;
   return data.signedUrl;
 }

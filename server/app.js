@@ -1254,7 +1254,7 @@ app.get("/api/project-files", requireLogin(), async (req, res) => {
 app.get("/api/project-files/:id/download", requireLogin(), async (req, res) => {
   const f = await row("SELECT * FROM project_files WHERE id=?", [req.params.id]);
   if (!f) return res.status(404).json({ error: "File not found" });
-  res.json({ url: await projectDownloadUrl(f.stored, f.name) });
+  res.json({ url: await projectDownloadUrl(f.stored, req.query.view ? null : f.name) });
 });
 
 app.delete("/api/project-files/:id", requireLogin(), async (req, res) => {
