@@ -40,7 +40,7 @@ async function row(sql, args = []) {
 }
 
 // Tables whose primary key isn't a single auto-incrementing "id" column.
-const NO_ID_TABLES = new Set(["permissions", "settings", "meeting_participants", "meeting_join_requests"]);
+const NO_ID_TABLES = new Set(["permissions", "settings", "meeting_participants", "meeting_join_requests", "team_members"]);
 
 async function execute(sql, args = []) {
   let pg = toPg(sql);

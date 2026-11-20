@@ -32,6 +32,7 @@ const P = {
   file: "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M8 13h8M8 17h5",
   link: "M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71",
   folder: "M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z",
+  network: "M10 3h4v4h-4zM12 7v4M5 11h14M5 11v3M19 11v3M12 11v3M3 14h4v4H3zM10 14h4v4h-4zM17 14h4v4h-4z",
   upload: "M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12",
   send: "M22 2L11 13M22 2l-7 20-4-9-9-4z",
   list: "M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01",
@@ -61,7 +62,7 @@ T.icon = (n, cls = "i") => `<svg class="${cls}" viewBox="0 0 24 24"><path d="${P
 T.logo = `<img src="/static/img/logo.png" alt="Teamo">`;
 
 T.initials = (n) => (n || "?").split(" ").map((x) => x[0]).slice(0, 2).join("").toUpperCase();
-T.avatar = (u, size = "") => `<div class="avatar ${size}" style="background:${u.color || "#6366f1"}">${T.esc(T.initials(u.name))}</div>`;
+T.avatar = (u, size = "") => u.photo ? `<img class="avatar ${size}" src="${T.esc(u.photo)}" alt="${T.esc(u.name)}">` : `<div class="avatar ${size}" style="background:${u.color || "#6366f1"}">${T.esc(T.initials(u.name))}</div>`;
 T.person = (u, sub) => `<div class="person">${T.avatar(u)}<div style="min-width:0"><div class="n">${T.esc(u.name)}</div><div class="d">${T.esc(sub ?? u.designation ?? "")}</div></div></div>`;
 
 const BADGE = {
@@ -426,6 +427,43 @@ T.toggleTheme = () => {
 };
 T.applyTheme();
 
+/* ---------------- Live refresh without flicker ----------------
+   A live update used to rebuild the whole view (innerHTML), so everything repainted, lost scroll/hover and
+   replayed animations. While a live refresh runs, innerHTML writes inside the page are applied as a diff
+   instead: nodes that didn't change stay untouched, only the differences are patched. */
+T.morph = (el, html) => {
+  const next = document.createElement("template");
+  next.innerHTML = html;
+  // Only attributes and text are patched. A field the user has touched keeps what they typed or picked (the browser
+  // stops following the attribute once a field is edited), so a live update never overwrites input in progress.
+  const sync = (a, b) => {
+    for (const at of [...a.attributes]) if (!b.hasAttribute(at.name)) a.removeAttribute(at.name);
+    for (const at of b.attributes) if (a.getAttribute(at.name) !== at.value) a.setAttribute(at.name, at.value);
+  };
+  const walk = (from, to) => {
+    const old = [...from.childNodes], neu = [...to.childNodes];
+    for (let i = 0; i < neu.length; i++) {
+      const o = old[i], n = neu[i];
+      if (!o) { from.appendChild(n); continue; }
+      if (o.nodeType !== n.nodeType || o.nodeName !== n.nodeName) { from.replaceChild(n, o); continue; }
+      if (o.nodeType !== 1) { if (o.nodeValue !== n.nodeValue) o.nodeValue = n.nodeValue; continue; }
+      sync(o, n);
+      walk(o, n);
+    }
+    for (let i = old.length - 1; i >= neu.length; i--) if (!(old[i].nodeType === 1 && old[i].hasAttribute("data-live-keep"))) from.removeChild(old[i]); // data-live-keep: filled in separately after load, so it stays put instead of blanking
+  };
+  walk(el, next.content);
+};
+T.liveRoot = null; // set to the page area while a live refresh is running
+(() => {
+  const d = Object.getOwnPropertyDescriptor(Element.prototype, "innerHTML");
+  Object.defineProperty(Element.prototype, "innerHTML", {
+    configurable: true,
+    get() { return d.get.call(this); },
+    set(h) { if (T.liveRoot && T.liveRoot.contains(this) && this.tagName !== "TEMPLATE") T.morph(this, String(h)); else d.set.call(this, h); },
+  });
+})();
+
 /* shell: builds sidebar + topbar, routes by hash */
 T.shell = ({ me, nav, views, tagline }) => {
   const root = document.getElementById("app");
@@ -489,9 +527,9 @@ T.shell = ({ me, nav, views, tagline }) => {
   let activeItem = null, activeView = null, pulseDebounce;
   const triggerLiveRefresh = () => {
     if (!activeItem || !activeView || document.hidden || T.uploading) return; // a live re-render would wipe running upload bars
-    const a = document.activeElement;
-    if (document.querySelector(".overlay") || (a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName))) return;
-    views[activeItem.id](activeView).catch(() => {});
+    if (document.querySelector(".overlay")) { T.onLive && T.onLive(); return; } // an open popup refreshes itself instead of the page behind it
+    T.liveRoot = activeView;
+    Promise.resolve(views[activeItem.id](activeView)).catch(() => {}).finally(() => { T.liveRoot = null; });
   };
   (async () => {
     try {
@@ -512,6 +550,7 @@ T.shell = ({ me, nav, views, tagline }) => {
   let refreshTimer;
   const route = async () => {
     clearInterval(refreshTimer);
+    T.liveRoot = null;
     activeItem = null; activeView = null;
     const id = location.hash.slice(1) || items[0].id;
     const item = items.find((n) => n.id === id) || items[0];
@@ -524,7 +563,11 @@ T.shell = ({ me, nav, views, tagline }) => {
       await views[item.id](view);
       view.firstElementChild?.classList.add("view");
       activeItem = item; activeView = view;
-      if (item.refresh) refreshTimer = setInterval(() => views[item.id](view).catch(() => {}), item.refresh);
+      if (item.refresh) refreshTimer = setInterval(() => {
+        if (document.hidden || document.querySelector(".overlay") || T.uploading) return;
+        T.liveRoot = view;
+        Promise.resolve(views[item.id](view)).catch(() => {}).finally(() => { T.liveRoot = null; });
+      }, item.refresh);
     } catch (e) {
       view.innerHTML = `<div class="card empty">${T.icon("alert")}<p class="mt">${T.esc(e.message)}</p></div>`;
     }
@@ -539,6 +582,7 @@ T.boot = async (expected, start) => {
     const me = await T.api("/api/me");
     T.syncClock(me.server_time); T.timezone = me.timezone;
     if (expected === "employee" ? me.user.role !== "employee" : me.user.role === "employee") { location.href = T.loginUrl(expected === "employee" ? "employee" : "admin"); return; }
+    T.me = me;
     start(me);
   } catch (e) { location.href = T.loginUrl(expected === "employee" ? "employee" : "admin"); }
 };

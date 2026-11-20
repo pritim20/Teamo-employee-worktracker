@@ -18,7 +18,7 @@ const punchCard = (a, workStart, workEnd, now) => {
   const pct = Math.min(100, Math.round((e.h / shift) * 100));
   const state = !a || !a.check_in ? (a && ["Absent", "Leave"].includes(a.status) ? a.status : "Not marked") : a.check_out ? "Logged out" : "Working";
   return `<div class="punch"><div class="ring" style="--p:${pct}"><div><b>${e.label}</b><small>of ${shift}h shift</small></div></div>
-    <div style="flex:1;min-width:200px"><div class="row" style="margin-bottom:14px">${T.badge(state === "Working" ? "Present" : state)}${a && a.status === "Late" ? T.badge("Late") : ""}</div>
+    <div style="flex:1;min-width:200px"><div class="row" style="margin-bottom:14px">${T.badge(state === "Working" ? "Present" : state)}</div>
     <div class="punch-times"><div><small>Login</small><b>${T.fmtTime(a?.check_in)}</b></div><div><small>Logout</small><b>${T.fmtTime(a?.check_out)}</b></div>
     <div><small>Shift</small><b>${T.fmtTime(workStart)} – ${T.fmtTime(workEnd)}</b></div></div>
     <div class="row mt"><span class="muted">${a && ["Absent", "Leave"].includes(a.status) ? "Marked by admin for today" : "Attendance is marked automatically when you sign in and out"}</span></div></div></div>`;
@@ -191,7 +191,7 @@ V.reports = async (el, n = 29) => {
   el.innerHTML = `<div><div class="toolbar"><div class="tabs" id="quick">${[[6, "7 days"], [29, "30 days"], [89, "90 days"]].map(([v, l]) => `<button data-n="${v}" class="${v === n ? "on" : ""}">${l}</button>`).join("")}</div>
     <div class="grow"></div><span class="muted small">${T.fmtDate(r.range.from)} – ${T.fmtDate(r.range.to)}</span></div>
     <h3 style="margin-bottom:14px">Summary</h3>
-    <div class="grid g-4">${T.stat("Hours worked", s.hours, "clock", "indigo", `${s.avg_hours}h average per day`)}${T.stat("Attendance rate", s.attendance_rate + "%", "check", "green", `${s.present} days present, ${s.late} late`)}
+    <div class="grid g-4">${T.stat("Hours worked", s.hours, "clock", "indigo", `${s.avg_hours}h average per day`)}${T.stat("Attendance rate", s.attendance_rate + "%", "check", "green", `${s.present} days present`)}
     ${T.stat("Tasks approved", `${s.tasks_done}/${s.tasks_total}`, "zap", "cyan", `${s.completion_rate}% completion`)}${T.stat("Meetings", s.meetings, "video", "pink", `${s.absent} absent · ${s.leave} on leave`)}</div>
     <div class="card mt"><div class="card-h"><h3>Attendance history</h3><span class="hint">${r.records.length} records</span></div><div class="table-wrap"><table>
     <thead><tr><th>Date</th><th>Day</th><th>Login</th><th>Logout</th><th>Hours</th><th>Status</th></tr></thead><tbody>
@@ -206,16 +206,19 @@ V.reports = async (el, n = 29) => {
 /* ---------------- Profile ---------------- */
 V.project = (el) => T.projectView(el, ME.user);
 
+V.organization = (el) => T.orgView(el);
+
 V.profile = async (el) => {
   const me = (await T.api("/api/me")).user;
-  el.innerHTML = `<div><div class="card hero"><div class="profile-head row"><div class="avatar lg" style="background:rgba(255,255,255,.2)">${T.esc(T.initials(me.name))}</div>
-    <div><h2>${T.esc(me.name)}</h2><p>${T.esc(me.designation)} · ${T.esc(me.department)}</p></div></div></div>
+  el.innerHTML = `<div><div class="card hero"><div class="profile-head row">${me.photo ? T.avatar(me, "lg") : `<div class="avatar lg" style="background:rgba(255,255,255,.2)">${T.esc(T.initials(me.name))}</div>`}
+    <div><h2>${T.esc(me.name)}</h2><p>${T.esc(me.designation)} · ${T.esc(me.department)}</p>${T.photoControl(me)}</div></div></div>
     <div class="grid g-2 mt"><div class="card"><div class="card-h"><h3>Personal details</h3></div><dl class="kv">
       <dt>Email</dt><dd>${T.esc(me.email)}</dd><dt>Phone</dt><dd>${T.esc(me.phone || "—")}</dd><dt>Gender</dt><dd>${T.esc(me.gender || "—")}</dd><dt>Address</dt><dd style="white-space:pre-wrap">${T.esc(me.address || "—")}</dd><dt>Department</dt><dd>${T.esc(me.department)}</dd>
       <dt>Designation</dt><dd>${T.esc(me.designation)}</dd><dt>Joined</dt><dd>${T.fmtDate(me.joined)}</dd><dt>Employee ID</dt><dd>TM-${String(me.id).padStart(4, "0")}</dd></dl>
       <form id="pf" class="mt"><div class="form-grid">${T.field("Display name", "name", me.name)}${T.field("Phone", "phone", me.phone)}</div><button class="btn primary mt">${T.icon("tick")}Save profile</button></form></div>
     <form class="card" id="pw"><div class="card-h"><h3>Change password</h3></div><div class="form-grid">${T.field("Current password", "current", "", "password", "full")}
       ${T.field("New password", "new", "", "password")}${T.field("Confirm password", "confirm", "", "password")}</div><button class="btn primary mt">${T.icon("lock")}Update password</button></form></div></div>`;
+  T.bindPhoto(el, me.id);
   el.querySelector("#pf").onsubmit = async (e) => {
     e.preventDefault();
     try { await T.api("/api/me/profile", { method: "PUT", body: Object.fromEntries(new FormData(e.target)) }); T.toast("Profile updated"); setTimeout(() => location.reload(), 600); } catch (er) { T.toast(er.message, "err"); }
@@ -237,6 +240,7 @@ T.boot("employee", (me) => {
       { id: "attendance", label: "Attendance", icon: "check" },
       { id: "tasks", label: "My Tasks", icon: "list" },
       { id: "meetings", label: "Meetings", icon: "video" },
+      { id: "organization", label: "Organization", icon: "network", perm: "directory.view", sub: "Employee directory, organization chart and teams" },
       { id: "reports", label: "My Reports", icon: "chart" },
       { id: "profile", label: "My Profile", icon: "user", sub: "Personal details & security" },
       { id: "project", label: "Project", icon: "folder", sub: "Share files with your team" },

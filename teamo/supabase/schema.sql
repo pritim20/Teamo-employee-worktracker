@@ -212,3 +212,30 @@ CREATE TABLE IF NOT EXISTS project_files(
   uploader TEXT DEFAULT '',
   ts TEXT
 );
+
+-- Organization: departments, teams, team leads and reporting lines.
+-- users.reports_to is the reporting line (admin -> manager -> team lead -> employee);
+-- users.photo is a small (<=128px) JPEG data URL shown in the directory and org chart.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS reports_to INTEGER;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS photo TEXT DEFAULT '';
+
+CREATE TABLE IF NOT EXISTS departments(
+  id SERIAL PRIMARY KEY,
+  name TEXT NOT NULL UNIQUE,
+  head_id INTEGER,
+  created_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS teams(
+  id SERIAL PRIMARY KEY,
+  name TEXT NOT NULL,
+  department_id INTEGER,
+  lead_id INTEGER,
+  created_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS team_members(
+  team_id INTEGER NOT NULL,
+  user_id INTEGER NOT NULL,
+  PRIMARY KEY(team_id, user_id)
+);

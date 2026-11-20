@@ -49,14 +49,9 @@ async function markLogin(u) {
     if (a.check_out) await execute("UPDATE attendance SET check_out=NULL WHERE id=?", [a.id]); // signed back in the same day
     return;
   }
-  const ws = await setting("work_start", "09:30");
-  const grace = parseInt((await setting("late_grace_minutes", "10")) || "0", 10);
-  const [h, m] = ws.split(":").map(Number);
-  const total = h * 60 + m + grace;
-  const limit = `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
-  const st = t > limit ? "Late" : "Present";
-  if (a) await execute("UPDATE attendance SET check_in=?, status=? WHERE id=?", [t, st, a.id]);
-  else await execute("INSERT INTO attendance(user_id,date,check_in,status) VALUES(?,?,?,?)", [u.id, d, t, st]);
+  // only the sign-in time is noted; there is no late mark
+  if (a) await execute("UPDATE attendance SET check_in=?, status='Present' WHERE id=?", [t, a.id]);
+  else await execute("INSERT INTO attendance(user_id,date,check_in,status) VALUES(?,?,?,'Present')", [u.id, d, t]);
 }
 
 async function markLogout(u) {
@@ -184,7 +179,7 @@ app.get("/api/admin/dashboard", requireStaff(), async (req, res) => {
     inMeetingIds(),
     row("SELECT COUNT(*) c FROM tasks WHERE status!='Approved'"),
     row("SELECT COUNT(*) c FROM tasks WHERE status!='Approved' AND due_date<?", [d]),
-    Promise.all(weekDays.map((dd) => row("SELECT COUNT(*) c FROM attendance WHERE date=? AND status IN ('Present','Late')", [dd]))),
+    Promise.all(weekDays.map((dd) => row("SELECT COUNT(*) c FROM attendance WHERE date=? AND status='Present'", [dd]))),
     Promise.all(taskStatuses.map((s) => row("SELECT COUNT(*) c FROM tasks WHERE status=?", [s]))),
     rows("SELECT m.*, (SELECT COUNT(*) FROM meeting_participants WHERE meeting_id=m.id) participants FROM meetings m WHERE date=? ORDER BY start_time", [d]),
     rows("SELECT * FROM audit_log ORDER BY id DESC LIMIT 6"),
@@ -194,8 +189,7 @@ app.get("/api/admin/dashboard", requireStaff(), async (req, res) => {
   ]);
 
   const att = Object.fromEntries(attRows.map((r) => [r.user_id, r]));
-  const present = emps.filter((e) => ["Present", "Late"].includes(att[e.id]?.status)).length;
-  const late = emps.filter((e) => att[e.id]?.status === "Late").length;
+  const present = emps.filter((e) => att[e.id]?.status === "Present").length;
   const onLeave = emps.filter((e) => att[e.id]?.status === "Leave").length;
   const pending = pendingRow.c, overdue = overdueRow.c;
 
@@ -217,7 +211,7 @@ app.get("/api/admin/dashboard", requireStaff(), async (req, res) => {
   for (const m of meetingsToday) m.state = meetingState(m);
   const empIds = new Set(emps.map((e) => e.id));
   res.json({
-    total: emps.length, present, absent: emps.length - present - onLeave, late, on_leave: onLeave,
+    total: emps.length, present, absent: emps.length - present - onLeave, on_leave: onLeave,
     in_meeting: [...meetIds].filter((i) => empIds.has(i)).length,
     pending_tasks: pending, overdue, week, task_stats: taskStats, live,
     meetings_today: meetingsToday, recent, departments, top_tasks: topTasks,
@@ -559,7 +553,7 @@ app.post("/api/attendance", requireStaff("attendance.manage"), async (req, res) 
   const b = req.body || {};
   const uid = b.user_id, d = b.date || today();
   const st = b.status || "Present";
-  if (!["Present", "Late", "Absent", "Leave"].includes(st)) return res.status(400).json({ error: "Invalid status" });
+  if (!["Present", "Absent", "Leave"].includes(st)) return res.status(400).json({ error: "Invalid status" });
   let ci = b.check_in || null, co = b.check_out || null;
   if (["Absent", "Leave"].includes(st)) ci = co = null;
   const existing = await row("SELECT id FROM attendance WHERE user_id=? AND date=?", [uid, d]);
@@ -675,8 +669,7 @@ function hoursBetween(a, b) {
 
 async function employeeReport(uid, dFrom, dTo) {
   const att = await rows("SELECT * FROM attendance WHERE user_id=? AND date BETWEEN ? AND ?", [uid, dFrom, dTo]);
-  const present = att.filter((a) => ["Present", "Late"].includes(a.status)).length;
-  const late = att.filter((a) => a.status === "Late").length;
+  const present = att.filter((a) => a.status === "Present").length;
   const absent = att.filter((a) => a.status === "Absent").length;
   const leave = att.filter((a) => a.status === "Leave").length;
   const hours = Math.round(att.reduce((s, a) => s + hoursBetween(a.check_in, a.check_out), 0) * 10) / 10;
@@ -687,7 +680,7 @@ async function employeeReport(uid, dFrom, dTo) {
   )).c;
   const marked = present + absent;
   return {
-    present, late, absent, leave, hours,
+    present, absent, leave, hours,
     avg_hours: present ? Math.round((hours / present) * 10) / 10 : 0,
     attendance_rate: marked ? Math.round((100 * present) / marked) : 0,
     tasks_total: tasks.length, tasks_done: done,
@@ -731,7 +724,7 @@ app.get("/api/reports", requireStaff("reports.view"), async (req, res) => {
   }
   const trend = await Promise.all(trendDays.map(async (d) => {
     const iso = d.toISOString().slice(0, 10);
-    const c = (await row("SELECT COUNT(*) c FROM attendance WHERE date=? AND status IN ('Present','Late')", [iso])).c;
+    const c = (await row("SELECT COUNT(*) c FROM attendance WHERE date=? AND status='Present'", [iso])).c;
     return { label: d.toLocaleDateString("en-US", { day: "2-digit", month: "short" }), value: c };
   }));
   const dept = {};
@@ -748,7 +741,6 @@ app.get("/api/reports", requireStaff("reports.view"), async (req, res) => {
       hours: Math.round(data.reduce((s, r) => s + r.hours, 0) * 10) / 10,
       avg_attendance: data.length ? Math.round(data.reduce((s, r) => s + r.attendance_rate, 0) / data.length) : 0,
       tasks_done: data.reduce((s, r) => s + r.tasks_done, 0),
-      late: data.reduce((s, r) => s + r.late, 0),
     },
   });
 });
@@ -762,11 +754,11 @@ function csvRow(fields) { return fields.map(csvField).join(",") + "\r\n"; }
 app.get("/api/reports/export", requireStaff("reports.view"), async (req, res) => {
   const [dFrom, dTo] = reportRange(req);
   const emps = await rows("SELECT id,name,department,designation FROM users WHERE role='employee' AND active=1 ORDER BY name");
-  let csv = csvRow(["Name", "Department", "Designation", "Present", "Late", "Absent", "Leave", "Hours",
+  let csv = csvRow(["Name", "Department", "Designation", "Present", "Absent", "Leave", "Hours",
     "Avg Hours/Day", "Attendance %", "Tasks", "Tasks Done", "Completion %", "Meetings"]);
   for (const e of emps) {
     const r = await employeeReport(e.id, dFrom, dTo);
-    csv += csvRow([e.name, e.department, e.designation, r.present, r.late, r.absent, r.leave, r.hours,
+    csv += csvRow([e.name, e.department, e.designation, r.present, r.absent, r.leave, r.hours,
       r.avg_hours, r.attendance_rate, r.tasks_total, r.tasks_done, r.completion_rate, r.meetings]);
   }
   await audit(req, "REPORT_EXPORT", `Exported report ${dFrom} to ${dTo}`);
@@ -791,7 +783,7 @@ app.get("/api/settings", requireStaff(), async (req, res) => {
 
 app.put("/api/settings", requireStaff("settings.manage"), async (req, res) => {
   const b = { ...(req.body || {}) };
-  const allowed = ["company_name", "work_start", "work_end", "late_grace_minutes", "timezone", "week_start", ...MAIL_KEYS];
+  const allowed = ["company_name", "work_start", "work_end", "timezone", "week_start", ...MAIL_KEYS];
   if ("mail_port" in b && String(b.mail_port).trim() && !/^\d+$/.test(String(b.mail_port).trim())) return res.status(400).json({ error: "Mail port must be a number" });
   if (b.mail_password === "") delete b.mail_password; // blank means "keep the saved password"
   if ("timezone" in b && !setTimezone(String(b.timezone).trim())) return res.status(400).json({ error: "Unknown timezone. Use a name like Asia/Kolkata or Europe/London." });
@@ -1266,6 +1258,8 @@ app.delete("/api/project-files/:id", requireLogin(), async (req, res) => {
   await audit(req, "FILE_DELETE", `Deleted project file ${f.name}`);
   res.json({ ok: true });
 });
+
+require("./org")(app); // directory, org chart, teams
 
 // Catches anything else thrown/rejected by a route (the async-handler wrapper above turns
 // a rejected promise into this, instead of an unhandled rejection that crashes the function).

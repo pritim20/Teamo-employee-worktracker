@@ -9,16 +9,19 @@ const ALL_PERMS = {
   "settings.manage": "Change system settings",
   "permissions.manage": "Manage role permissions",
   "audit.view": "View audit log",
+  "directory.view": "View employee directory, organization chart and teams",
+  "teams.manage": "Create departments & teams, assign team leads and reporting lines",
 };
 
 const MANAGER_DEFAULT = Object.fromEntries(
-  Object.keys(ALL_PERMS).map((p) => [p, !["settings.manage", "permissions.manage"].includes(p)])
+  Object.keys(ALL_PERMS).map((p) => [p, !["settings.manage", "permissions.manage", "teams.manage"].includes(p)])
 );
 
 const EMPLOYEE_PERMS = {
   "attendance.self": "Check in, take breaks and check out",
   "tasks.work": "Start, update and submit assigned tasks",
   "meetings.join": "Request to join meetings",
+  "directory.view": "View employee directory, organization chart and teams",
 };
 
 const LOCKED = [["admin", "permissions.manage"]]; // can't be switched off, so admins can never lock themselves out

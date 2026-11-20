@@ -25,7 +25,7 @@ V.dashboard = async (el) => {
 
     <div class="grid g-3 mt">
       ${T.stat("Total Employees", d.total, "users", "indigo", `${d.departments.length} departments`)}
-      ${T.stat("Present Today", d.present, "check", "green", `<b style="color:var(--green)">${rate}%</b> attendance · ${d.late} late`)}
+      ${T.stat("Present Today", d.present, "check", "green", `<b style="color:var(--green)">${rate}%</b> attendance`)}
       ${T.stat("In Meeting", d.in_meeting, "video", "pink", `${d.meetings_today.length} meetings scheduled today`)}
     </div>
 
@@ -241,7 +241,7 @@ V.attendance = async (el, date = T.today(), q = "") => {
       <button class="btn btn-ghost" id="prev">‹</button><input type="date" class="input" id="dt" value="${d.date}" style="width:170px"><button class="btn btn-ghost" id="next">›</button>
       <button class="btn" id="tdy">Today</button><div class="search">${T.icon("search")}<input class="input" id="q" value="${T.esc(q)}" placeholder="Search name or department"></div>
       <div class="grow"></div><span class="muted bold">${new Date(d.date + "T00:00").toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long" })}</span></div>
-    <div class="grid g-4">${T.stat("Present", count("Present"), "check", "green")}${T.stat("Late", count("Late"), "clock", "amber")}
+    <div class="grid g-3">${T.stat("Present", count("Present"), "check", "green")}
       ${T.stat("Absent", count("Absent"), "x", "pink")}${T.stat("On leave / Not marked", count("Leave") + count("Not marked"), "calendar", "cyan")}</div>
     <div class="card mt"><div class="card-h"><h3>Attendance register</h3><span class="hint" id="cnt">Click edit to mark or correct</span></div><div class="table-wrap"><table>
     <thead><tr><th>Employee</th><th>Department</th><th>Login</th><th>Logout</th><th>Status</th><th>Note</th><th></th></tr></thead><tbody id="tb"></tbody></table></div></div></div>`;
@@ -263,7 +263,7 @@ V.attendance = async (el, date = T.today(), q = "") => {
   const markAttendance = async (uid) => {
     const r = d.records.find((x) => x.id == uid);
     const f = await T.modal({ title: `Mark attendance · ${r.name}`, body: `<div class="form-grid">
-      ${T.select("Status", "status", ["Present", "Late", "Absent", "Leave"], r.status === "Not marked" ? "Present" : r.status, "full")}
+      ${T.select("Status", "status", ["Present", "Absent", "Leave"], r.status === "Not marked" ? "Present" : r.status, "full")}
       ${T.field("Login time", "check_in", r.check_in || "09:30", "time")}${T.field("Logout time", "check_out", r.check_out || "", "time")}
       ${T.field("Note", "note", r.note, "text", "full")}</div>` });
     if (!f) return;
@@ -359,8 +359,8 @@ V.reports = async (el, from, to) => {
       <td style="min-width:130px"><div class="row" style="gap:8px"><div class="progress" style="flex:1"><i style="width:${e.completion_rate}%;background:linear-gradient(90deg,#10b981,#34d399)"></i></div><span class="small bold">${e.completion_rate}%</span></div></td>
       <td>${e.meetings}</td></tr>`).join("") || '<tr><td colspan="6" class="empty">No employees yet</td></tr>'}</tbody></table></div></div>
     <h3 style="margin:26px 0 14px">Attendance</h3>
-    <div class="grid g-4">${T.stat("Avg attendance", r.totals.avg_attendance + "%", "check", "green")}${T.stat("Present days", sum("present"), "user", "indigo")}
-      ${T.stat("Late arrivals", r.totals.late, "alert", "amber")}${T.stat("Absent days", sum("absent"), "x", "pink")}</div>
+    <div class="grid g-3">${T.stat("Avg attendance", r.totals.avg_attendance + "%", "check", "green")}${T.stat("Present days", sum("present"), "user", "indigo")}
+      ${T.stat("Absent days", sum("absent"), "x", "pink")}</div>
     <div class="card mt"><div class="card-h"><h3>Attendance history</h3><span class="hint">${r.records.length} records</span></div><div class="table-wrap"><table>
       <thead><tr><th>Date</th><th>Employee</th><th>Login</th><th>Logout</th><th>Hours</th><th>Status</th></tr></thead><tbody>
       ${r.records.map((x) => `<tr><td class="bold">${T.fmtDate(x.date)}</td><td>${T.person(x, x.department)}</td><td>${T.fmtTime(x.check_in)}</td><td>${T.fmtTime(x.check_out)}</td><td>${x.hours ? x.hours + "h" : "—"}</td><td>${T.badge(x.status)}</td></tr>`).join("") || '<tr><td colspan="6" class="empty">No attendance records</td></tr>'}</tbody></table></div></div>
@@ -385,17 +385,17 @@ V.settings = async (el) => {
   el.innerHTML = `<div class="grid g-2"><form class="card" id="sf"><div class="card-h"><h3>Company & work hours</h3>${ro ? '<span class="badge b-gray">Read only</span>' : ""}</div>
     <div class="form-grid">${T.field("Company name", "company_name", s.company_name, "text", "full " + ro)}
     ${T.field("Work starts", "work_start", s.work_start, "time", ro)}${T.field("Work ends", "work_end", s.work_end, "time", ro)}
-    ${T.field("Late grace (minutes)", "late_grace_minutes", s.late_grace_minutes, "number", ro)}
     ${T.select("Week starts on", "week_start", ["Monday", "Sunday"], s.week_start, ro)}
     ${T.field("Timezone", "timezone", s.timezone, "text", "full " + ro)}</div>
     ${ro ? "" : `<button class="btn primary mt">${T.icon("tick")}Save settings</button>`}</form>
     <form class="card" id="pf"><div class="card-h"><h3>Change your password</h3></div><div class="form-grid">
     ${T.field("Current password", "current", "", "password", "full")}${T.field("New password", "new", "", "password")}${T.field("Confirm", "confirm", "", "password")}</div>
     <button class="btn primary mt">${T.icon("lock")}Update password</button>
-    <div class="card mt" style="background:var(--surface-2);box-shadow:none"><div class="bold">Signed in as</div><div class="mt" style="margin-top:10px">${T.person(ME.user, ME.user.email)}</div></div></form>
+    <div class="card mt" style="background:var(--surface-2);box-shadow:none"><div class="bold">Signed in as</div><div class="mt" style="margin-top:10px">${T.person(ME.user, ME.user.email)}</div>${T.photoControl(ME.user)}</div></form>
     ${ME.user.role === "admin" ? `<div class="card"><div class="card-h"><h3>Admins</h3></div>
       <p class="small muted" style="margin-bottom:14px">Give someone else full admin access to Teamo.</p>
       <button class="btn primary" id="newAdmin">${T.icon("plus")}Create new admin</button></div>` : ""}</div>`;
+  T.bindPhoto(el, ME.user.id);
   el.querySelector("#sf").onsubmit = async (e) => {
     e.preventDefault();
     try { await T.api("/api/settings", { method: "PUT", body: Object.fromEntries(new FormData(e.target)) }); T.toast("Settings saved"); } catch (er) { T.toast(er.message, "err"); }
@@ -441,6 +441,7 @@ const renderEmailSettings = async (el) => {
 
 /* ---------------- Permissions ---------------- */
 V.project = (el) => T.projectView(el, ME.user);
+V.organization = (el) => T.orgView(el);
 
 V.permissions = async (el) => {
   const { perms, employee_perms } = await T.api("/api/permissions");
@@ -457,9 +458,13 @@ V.permissions = async (el) => {
     <div class="table-wrap"><table>${head("What employees can do")}<th style="text-align:center">Employee</th></tr></thead><tbody>
     ${employee_perms.map((p) => `<tr><td class="bold">${T.esc(p.label)}</td><td><code class="small muted">${p.key}</code></td><td style="text-align:center">${sw(p.key, "employee", p.employee)}</td></tr>`).join("")}</tbody></table></div></div></div>`;
   if (can("settings.manage")) {
-    const box = document.createElement("div");
-    box.className = "mt";
-    el.firstElementChild.appendChild(box);
+    let box = el.querySelector("[data-live-keep]"); // kept across live updates so the card never blanks
+    if (!box) {
+      box = document.createElement("div");
+      box.className = "mt";
+      box.setAttribute("data-live-keep", "1");
+      el.firstElementChild.appendChild(box);
+    }
     await renderEmailSettings(box);
   }
   el.querySelector("#save")?.addEventListener("click", async () => {
@@ -477,6 +482,7 @@ T.boot("admin", async (me) => {
     nav: [
       { id: "dashboard", label: "Dashboard", icon: "grid", refresh: 30000 },
       { id: "employees", label: "Employee Management", icon: "users", perm: "employees.view", title: "Employee Management" },
+      { id: "organization", label: "Organization", icon: "network", perm: "directory.view", sub: "Employee directory, organization chart and teams" },
       { id: "tasks", label: "Task Management", icon: "list", perm: "tasks.manage" },
       { id: "attendance", label: "Attendance", icon: "check", perm: "attendance.manage" },
       { id: "meetings", label: "Meeting Management", icon: "video", perm: "meetings.manage" },
